@@ -11,11 +11,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.MessageType;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -78,6 +80,16 @@ class TaskStoreChatMemoryAdapterTest {
     }
 
     @Test
+    void addNullMessageList() {
+        String conversationId = "conv-123";
+
+        adapter.add(conversationId, (List<Message>) null);
+
+        verify(taskStore, never()).get(any());
+        verify(taskStore, never()).save(any());
+    }
+
+    @Test
     void getAllMessages() {
         String conversationId = "conv-123";
         Task task = createSampleTask(conversationId);
@@ -103,10 +115,51 @@ class TaskStoreChatMemoryAdapterTest {
     }
 
     @Test
+    void getLastNMessagesWhenNExceedsHistorySize() {
+        String conversationId = "conv-123";
+        Task task = createTaskWithMultipleMessages(conversationId, 2);
+
+        when(taskStore.get(conversationId)).thenReturn(task);
+
+        List<Message> messages = adapter.get(conversationId, 10);
+
+        assertThat(messages).hasSize(2);
+    }
+
+    @Test
+    void getLastNMessagesWhenNIsZero() {
+        String conversationId = "conv-123";
+        Task task = createTaskWithMultipleMessages(conversationId, 3);
+
+        when(taskStore.get(conversationId)).thenReturn(task);
+
+        List<Message> messages = adapter.get(conversationId, 0);
+
+        assertThat(messages).isEmpty();
+    }
+
+    @Test
     void getFromNonExistentConversation() {
         String conversationId = "conv-missing";
 
         when(taskStore.get(conversationId)).thenReturn(null);
+
+        List<Message> messages = adapter.get(conversationId);
+
+        assertThat(messages).isEmpty();
+    }
+
+    @Test
+    void getFromConversationWithEmptyHistory() {
+        String conversationId = "conv-empty";
+        Task task = new Task.Builder()
+                .id(conversationId)
+                .contextId(conversationId)
+                .status(new TaskStatus(TaskState.WORKING))
+                .history(List.of())
+                .build();
+
+        when(taskStore.get(conversationId)).thenReturn(task);
 
         List<Message> messages = adapter.get(conversationId);
 
@@ -185,6 +238,23 @@ class TaskStoreChatMemoryAdapterTest {
     }
 
     @Test
+    void convertToolMessage() {
+        String conversationId = "conv-123";
+        Message springMessage = mock(Message.class);
+        when(springMessage.getMessageType()).thenReturn(MessageType.TOOL);
+        when(springMessage.getText()).thenReturn("Tool output");
+        when(taskStore.get(conversationId)).thenReturn(null);
+
+        adapter.add(conversationId, List.of(springMessage));
+
+        verify(taskStore).save(argThat(task -> {
+            if (task.getHistory().isEmpty()) return false;
+            io.a2a.spec.Message a2aMessage = task.getHistory().get(0);
+            return a2aMessage.getRole() == io.a2a.spec.Message.Role.AGENT;
+        }));
+    }
+
+    @Test
     void extractTextContent() {
         String conversationId = "conv-123";
         io.a2a.spec.Message a2aMessage = new io.a2a.spec.Message.Builder()
@@ -208,6 +278,30 @@ class TaskStoreChatMemoryAdapterTest {
         assertThat(messages.get(0).getText()).isEqualTo("Hello");
     }
 
+    @Test
+    void extractTextContentIgnoresNonTextParts() {
+        String conversationId = "conv-123";
+        io.a2a.spec.Message a2aMessage = new io.a2a.spec.Message.Builder()
+                .role(io.a2a.spec.Message.Role.USER)
+                .parts(new DataPart(java.util.Map.of("key", "value")))
+                .contextId(conversationId)
+                .build();
+
+        Task task = new Task.Builder()
+                .id(conversationId)
+                .contextId(conversationId)
+                .status(new TaskStatus(TaskState.WORKING))
+                .history(List.of(a2aMessage))
+                .build();
+
+        when(taskStore.get(conversationId)).thenReturn(task);
+
+        List<Message> messages = adapter.get(conversationId);
+
+        assertThat(messages).hasSize(1);
+        assertThat(messages.get(0).getText()).isEmpty();
+    }
+
     private Task createSampleTask(String conversationId) {
         io.a2a.spec.Message message = new io.a2a.spec.Message.Builder()
             .role(io.a2a.spec.Message.Role.USER)
@@ -224,14 +318,13 @@ class TaskStoreChatMemoryAdapterTest {
     }
 
     private Task createTaskWithMultipleMessages(String conversationId, int messageCount) {
-        List<io.a2a.spec.Message> messages = new java.util.ArrayList<>();
-        for (int i = 0; i < messageCount; i++) {
-            messages.add(new io.a2a.spec.Message.Builder()
+        List<io.a2a.spec.Message> messages = IntStream.range(0, messageCount)
+            .mapToObj(i -> new io.a2a.spec.Message.Builder()
                 .role(i % 2 == 0 ? io.a2a.spec.Message.Role.USER : io.a2a.spec.Message.Role.AGENT)
                 .parts(new TextPart("Message " + i))
                 .contextId(conversationId)
-                .build());
-        }
+                .build())
+            .toList();
 
         return new Task.Builder()
             .id(conversationId)

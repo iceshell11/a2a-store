@@ -3,17 +3,23 @@ package io.a2a.extras.taskstore.springai;
 import io.a2a.extras.taskstore.A2aTaskStoreProperties;
 import io.a2a.server.tasks.TaskStateProvider;
 import io.a2a.server.tasks.TaskStore;
-import io.a2a.spec.*;
 import io.a2a.spec.Message;
+import io.a2a.spec.Task;
+import io.a2a.spec.TaskState;
+import io.a2a.spec.TaskStatus;
+import io.a2a.spec.TextPart;
 import org.springframework.ai.chat.memory.ChatMemory;
-import org.springframework.ai.chat.messages.*;
+import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.MessageType;
+import org.springframework.ai.chat.messages.UserMessage;
 
 import java.time.OffsetDateTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
+import java.util.stream.Stream;
 
 public class TaskStoreChatMemoryAdapter implements ChatMemory {
 
@@ -30,24 +36,23 @@ public class TaskStoreChatMemoryAdapter implements ChatMemory {
     );
 
     private final TaskStore taskStore;
-    private final TaskStateProvider taskStateProvider;
-    private final A2aTaskStoreProperties properties;
 
     public TaskStoreChatMemoryAdapter(TaskStore taskStore, TaskStateProvider taskStateProvider, A2aTaskStoreProperties properties) {
         this.taskStore = taskStore;
-        this.taskStateProvider = taskStateProvider;
-        this.properties = properties;
     }
 
     @Override
     public void add(String conversationId, List<org.springframework.ai.chat.messages.Message> messages) {
-        if (messages == null || messages.isEmpty()) return;
+        if (messages == null || messages.isEmpty()) {
+            return;
+        }
 
         Task task = getOrCreateTask(conversationId);
-        List<Message> a2aMessages = new ArrayList<>(task.getHistory());
-        messages.stream()
-            .map(msg -> convertToA2aMessage(msg, conversationId))
-            .forEach(a2aMessages::add);
+        List<Message> a2aMessages = Stream.concat(
+                task.getHistory().stream(),
+                messages.stream().map(message -> convertToA2aMessage(message, conversationId))
+            )
+            .collect(Collectors.toCollection(ArrayList::new));
 
         taskStore.save(new Task.Builder(task).history(a2aMessages).build());
     }
@@ -57,16 +62,14 @@ public class TaskStoreChatMemoryAdapter implements ChatMemory {
         if (task == null || task.getHistory().isEmpty()) {
             return List.of();
         }
-        
+
         List<Message> history = task.getHistory();
-        
-        // Get last N messages
-        int startIndex = Math.max(0, history.size() - lastN);
-        List<Message> recentMessages = history.subList(startIndex, history.size());
-        
-        return recentMessages.stream()
+        int historySize = history.size();
+        int startIndex = Math.max(0, historySize - lastN);
+
+        return history.subList(startIndex, historySize).stream()
             .map(this::convertToSpringAiMessage)
-            .collect(Collectors.toList());
+            .toList();
     }
 
     @Override
@@ -109,10 +112,14 @@ public class TaskStoreChatMemoryAdapter implements ChatMemory {
     }
 
     private String extractTextContent(Message a2aMessage) {
-        if (a2aMessage.getParts() == null) return "";
+        if (a2aMessage.getParts() == null) {
+            return "";
+        }
+
         return a2aMessage.getParts().stream()
-            .filter(part -> part instanceof TextPart)
-            .map(part -> ((TextPart) part).getText())
+            .filter(TextPart.class::isInstance)
+            .map(TextPart.class::cast)
+            .map(TextPart::getText)
             .collect(Collectors.joining());
     }
 }

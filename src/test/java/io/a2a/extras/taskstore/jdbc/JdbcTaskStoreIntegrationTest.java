@@ -12,8 +12,10 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.jdbc.Sql;
 
 import java.time.OffsetDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -170,6 +172,12 @@ class JdbcTaskStoreIntegrationTest {
     }
 
     @Test
+    void taskStateChecksForNonExistentTask() {
+        assertThat(taskStore.isTaskActive("missing-id")).isFalse();
+        assertThat(taskStore.isTaskFinalized("missing-id")).isFalse();
+    }
+
+    @Test
     void saveWithMultipleMessages() {
         String conversationId = "conv-multi";
 
@@ -195,6 +203,105 @@ class JdbcTaskStoreIntegrationTest {
         // Verify order is preserved
         assertThat(retrieved.getHistory().get(0).getRole()).isEqualTo(io.a2a.spec.Message.Role.USER);
         assertThat(retrieved.getHistory().get(1).getRole()).isEqualTo(io.a2a.spec.Message.Role.AGENT);
+    }
+
+    @Test
+    void saveAndGetTaskWithStatusMessageAndComplexMetadata() {
+        String conversationId = "conv-status-metadata";
+        io.a2a.spec.Message statusMessage = new io.a2a.spec.Message.Builder()
+                .role(io.a2a.spec.Message.Role.AGENT)
+                .parts(new TextPart("Status update"))
+                .contextId(conversationId)
+                .build();
+
+        Task task = new Task.Builder()
+                .id(conversationId)
+                .contextId(conversationId)
+                .status(new TaskStatus(TaskState.WORKING, statusMessage, OffsetDateTime.now()))
+                .history(List.of(createMessage(io.a2a.spec.Message.Role.USER, "hello")))
+                .metadata(Map.of(
+                        "stringKey", "stringValue",
+                        "numberKey", 42,
+                        "booleanKey", true,
+                        "nestedKey", Map.of("inner", "value")
+                ))
+                .build();
+
+        taskStore.save(task);
+        Task retrieved = taskStore.get(conversationId);
+
+        assertThat(retrieved.getStatus().message()).isNotNull();
+        assertThat(retrieved.getStatus().message().getRole()).isEqualTo(io.a2a.spec.Message.Role.AGENT);
+        assertThat(((TextPart) retrieved.getStatus().message().getParts().get(0)).getText()).isEqualTo("Status update");
+        assertThat(retrieved.getMetadata())
+                .containsKey("stringKey")
+                .containsKey("numberKey")
+                .containsKey("booleanKey")
+                .containsKey("nestedKey");
+        assertThat(retrieved.getMetadata().get("stringKey")).isEqualTo("stringValue");
+        assertThat(retrieved.getMetadata().get("numberKey").toString()).isEqualTo("42");
+        assertThat(retrieved.getMetadata().get("booleanKey").toString()).isEqualTo("true");
+        assertThat(retrieved.getMetadata().get("nestedKey").toString()).contains("inner");
+    }
+
+    @Test
+    void saveWithEmptyArtifactsAndMetadataClearsExistingData() {
+        String conversationId = "conv-clear-optional-data";
+        taskStore.save(createSampleTask(conversationId));
+
+        Task updatedTask = new Task.Builder()
+                .id(conversationId)
+                .contextId(conversationId)
+                .status(new TaskStatus(TaskState.WORKING))
+                .history(List.of(createMessage(io.a2a.spec.Message.Role.USER, "updated")))
+                .artifacts(List.of())
+                .metadata(Map.of())
+                .build();
+
+        taskStore.save(updatedTask);
+        Task retrieved = taskStore.get(conversationId);
+
+        assertThat(retrieved.getArtifacts()).isNullOrEmpty();
+        assertThat(retrieved.getMetadata()).isNullOrEmpty();
+    }
+
+    @Test
+    void saveUsesBatchingForMessagesArtifactsAndMetadata() {
+        properties.setBatchSize(2);
+        taskStore = new JdbcTaskStore(jdbcTemplate, properties);
+
+        String conversationId = "conv-batch";
+        List<io.a2a.spec.Message> messages = IntStream.range(0, 5)
+                .mapToObj(i -> createMessage(io.a2a.spec.Message.Role.USER, "msg-" + i))
+                .toList();
+        List<Artifact> artifacts = IntStream.range(0, 5)
+                .mapToObj(i -> new Artifact.Builder()
+                        .artifactId("artifact-" + i)
+                        .name("Artifact " + i)
+                        .parts(new TextPart("artifact-content-" + i))
+                        .build())
+                .toList();
+
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        IntStream.range(0, 5).forEach(i -> metadata.put("key-" + i, "value-" + i));
+
+        Task task = new Task.Builder()
+                .id(conversationId)
+                .contextId(conversationId)
+                .status(new TaskStatus(TaskState.WORKING))
+                .history(messages)
+                .artifacts(artifacts)
+                .metadata(metadata)
+                .build();
+
+        taskStore.save(task);
+        Task retrieved = taskStore.get(conversationId);
+
+        assertThat(retrieved.getHistory()).hasSize(5);
+        assertThat(((TextPart) retrieved.getHistory().get(0).getParts().get(0)).getText()).isEqualTo("msg-0");
+        assertThat(((TextPart) retrieved.getHistory().get(4).getParts().get(0)).getText()).isEqualTo("msg-4");
+        assertThat(retrieved.getArtifacts()).hasSize(5);
+        assertThat(retrieved.getMetadata()).hasSize(5);
     }
 
     private Task createSampleTask(String conversationId) {
