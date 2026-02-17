@@ -111,22 +111,50 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
     }
 
     private void saveMessages(String conversationId, List<Message> messages) {
-        jdbcTemplate.update("DELETE FROM a2a_messages WHERE conversation_id = ?", conversationId);
         if (messages.isEmpty()) {
+            jdbcTemplate.update("DELETE FROM a2a_messages WHERE conversation_id = ?", conversationId);
             return;
         }
 
+        int existingCount = jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM a2a_messages WHERE conversation_id = ?",
+            Integer.class,
+            conversationId
+        );
+
+        if (existingCount == 0) {
+            insertAllMessages(conversationId, messages);
+        } else if (messages.size() > existingCount) {
+            List<Message> newMessages = messages.subList(existingCount, messages.size());
+            insertMessagesStartingFromSequence(conversationId, newMessages, existingCount);
+        }
+    }
+
+    private void insertAllMessages(String conversationId, List<Message> messages) {
         String sql = """
             INSERT INTO a2a_messages (conversation_id, role, content_json, metadata_json, sequence_num)
             VALUES (?, ?, ?, ?, ?)
             """;
-
         batchInsert(sql, messages, (msg, index) -> new Object[]{
             conversationId,
             msg.getRole().name(),
             JsonUtils.toJson(msg.getParts()),
             JsonUtils.toJson(msg.getMetadata()),
             index
+        });
+    }
+
+    private void insertMessagesStartingFromSequence(String conversationId, List<Message> messages, int startSequence) {
+        String sql = """
+            INSERT INTO a2a_messages (conversation_id, role, content_json, metadata_json, sequence_num)
+            VALUES (?, ?, ?, ?, ?)
+            """;
+        batchInsert(sql, messages, (msg, index) -> new Object[]{
+            conversationId,
+            msg.getRole().name(),
+            JsonUtils.toJson(msg.getParts()),
+            JsonUtils.toJson(msg.getMetadata()),
+            startSequence + index
         });
     }
 
@@ -152,18 +180,34 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
     }
 
     private void saveMetadata(String conversationId, Map<String, Object> metadata) {
-        jdbcTemplate.update("DELETE FROM a2a_metadata WHERE conversation_id = ?", conversationId);
         if (metadata.isEmpty()) {
+            jdbcTemplate.update("DELETE FROM a2a_metadata WHERE conversation_id = ?", conversationId);
             return;
         }
 
-        String sql = """
-            INSERT INTO a2a_metadata (conversation_id, "key", value_json)
-            VALUES (?, ?, ?)
+        String mergeSql = """
+            MERGE INTO a2a_metadata (conversation_id, "key", value_json, updated_at)
+            KEY (conversation_id, "key")
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
             """;
 
         List<Map.Entry<String, Object>> entries = metadata.entrySet().stream().toList();
-        batchInsert(sql, entries, (entry, idx) -> new Object[]{conversationId, entry.getKey(), JsonUtils.toJson(entry.getValue())});
+        batchInsert(mergeSql, entries, (entry, idx) -> new Object[]{
+            conversationId, entry.getKey(), JsonUtils.toJson(entry.getValue())
+        });
+
+        Set<String> keysToKeep = metadata.keySet();
+        if (!keysToKeep.isEmpty()) {
+            String placeholders = keysToKeep.stream().map(k -> "?").collect(Collectors.joining(", "));
+            String deleteSql = "DELETE FROM a2a_metadata WHERE conversation_id = ? AND \"key\" NOT IN (" + placeholders + ")";
+            Object[] params = new Object[keysToKeep.size() + 1];
+            params[0] = conversationId;
+            int i = 1;
+            for (String key : keysToKeep) {
+                params[i++] = key;
+            }
+            jdbcTemplate.update(deleteSql, params);
+        }
     }
 
     @Override
