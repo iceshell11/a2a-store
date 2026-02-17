@@ -1,0 +1,24 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/a2a_db
+    username: postgres
+    password: your_password_here
+    driver-class-name: org.postgresql.Driver
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+
+# A2A TaskStore Configuration
+a2a:
+  taskstore:
+    enabled: true                    # Enable/disable the auto-configuration
+    store-artifacts: true            # Store task artifacts (set false to disable)
+    store-metadata: true             # Store task metadata (set false to disable)
+    batch-size: 100                  # Batch size for bulk operations
+    chat-memory-enabled: true        # Register ChatMemory bean for Spring AI
+
+# Logging
+logging:
+  level:
+    io.a2a.extras.taskstore: DEBUG
