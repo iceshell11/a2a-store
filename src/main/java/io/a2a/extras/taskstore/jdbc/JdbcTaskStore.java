@@ -82,7 +82,7 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
         TaskStatus status = task.getStatus();
         String conversationId = task.getContextId();
         String statusState = status.state().asString();
-        String statusMessage = toJson(status.message());
+        String statusMessage = status.message() == null ? null : toJson(status.message());
         OffsetDateTime statusTimestamp = status.timestamp();
         OffsetDateTime finalizedAt = FINAL_STATES.contains(status.state()) ? OffsetDateTime.now() : null;
 
@@ -210,7 +210,7 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
             WHERE conversation_id = ?
             ORDER BY sequence_num
             """;
-        return jdbcTemplate.query(sql, new MessageRowMapper(objectMapper), conversationId);
+        return jdbcTemplate.query(sql, new MessageRowMapper(), conversationId);
     }
 
     private List<Artifact> loadArtifacts(String conversationId) {
@@ -249,14 +249,7 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
     }
 
     private Optional<Message> readStatusMessage(String statusMessage) {
-        if (statusMessage == null) {
-            return Optional.empty();
-        }
-        String normalized = statusMessage.trim();
-        if (normalized.isBlank() || "null".equalsIgnoreCase(normalized) || "\"null\"".equalsIgnoreCase(normalized)) {
-            return Optional.empty();
-        }
-        return fromJson(normalized, MESSAGE_TYPE);
+        return fromJson(statusMessage, MESSAGE_TYPE);
     }
 
     @Override
@@ -305,41 +298,41 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
     }
 
     private <T> Optional<T> fromJson(String json, TypeReference<T> typeRef) {
+        if (json == null || json.trim().isEmpty()) {
+            return Optional.empty();
+        }
         try {
-            T value = objectMapper.readValue(json, typeRef);
-            if (typeRef == OBJECT_TYPE && value instanceof String stringValue) {
-                Optional<String> normalized = unwrapJsonString(stringValue);
-                if (normalized.isPresent()) {
-                    @SuppressWarnings("unchecked")
-                    T unwrapped = (T) normalized.get();
-                    return Optional.of(unwrapped);
-                }
-            }
-            return Optional.ofNullable(value);
-        } catch (JsonProcessingException e) {
-            Optional<String> unwrappedJson = unwrapJsonString(json);
-            if (unwrappedJson.isEmpty()) {
+            T value = readJsonMaybeWrapped(json, typeRef);
+            if (value == null) {
                 return Optional.empty();
             }
-            try {
-                return Optional.ofNullable(objectMapper.readValue(unwrappedJson.get(), typeRef));
-            } catch (JsonProcessingException nestedException) {
-                throw new RuntimeException("Failed to deserialize JSON", e);
+            if (typeRef == OBJECT_TYPE && value instanceof String stringValue) {
+                Optional<String> unwrappedValue = unwrapJsonString(stringValue);
+                @SuppressWarnings("unchecked")
+                T normalized = (T) unwrappedValue.orElse(stringValue);
+                return Optional.of(normalized);
             }
+            return Optional.of(value);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Failed to deserialize JSON", e);
+        }
+    }
+
+    private <T> T readJsonMaybeWrapped(String json, TypeReference<T> typeRef) throws JsonProcessingException {
+        try {
+            return objectMapper.readValue(json, typeRef);
+        } catch (JsonProcessingException firstException) {
+            Optional<String> unwrappedJson = unwrapJsonString(json);
+            if (unwrappedJson.isEmpty()) {
+                throw firstException;
+            }
+            return objectMapper.readValue(unwrappedJson.get(), typeRef);
         }
     }
 
     private Optional<String> unwrapJsonString(String json) {
         try {
-            String unwrapped = objectMapper.readValue(json, String.class);
-            if (unwrapped == null) {
-                return Optional.empty();
-            }
-            String normalized = unwrapped.trim();
-            if (normalized.isBlank() || "null".equalsIgnoreCase(normalized)) {
-                return Optional.empty();
-            }
-            return Optional.of(normalized);
+            return Optional.ofNullable(objectMapper.readValue(json, String.class));
         } catch (JsonProcessingException ignored) {
             return Optional.empty();
         }
@@ -367,124 +360,27 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
         }
     }
 
-    private static class MessageRowMapper implements RowMapper<Message> {
-        private final ObjectMapper objectMapper;
-        
-        MessageRowMapper(ObjectMapper objectMapper) {
-            this.objectMapper = objectMapper;
-        }
-        
+    private class MessageRowMapper implements RowMapper<Message> {
         @Override
         public Message mapRow(ResultSet rs, int rowNum) throws SQLException {
             try {
                 String conversationId = rs.getString("conversation_id");
                 Message.Role role = Message.Role.valueOf(rs.getString("role"));
-                String contentJson = rs.getString("content_json");
-                String metadataJson = rs.getString("metadata_json");
-                return parseMessage(conversationId, contentJson, metadataJson, role);
-            } catch (JsonProcessingException e) {
-                throw new SQLException("Failed to deserialize message", e);
-            }
-        }
+                Optional<List<Part<?>>> parsedParts = fromJson(rs.getString("content_json"), PARTS_TYPE);
+                if (parsedParts.isEmpty()) {
+                    throw new SQLException("Message content_json is null");
+                }
+                List<Part<?>> parts = parsedParts.get();
+                Map<String, Object> metadata = fromJson(rs.getString("metadata_json"), METADATA_MAP_TYPE).orElse(Map.of());
 
-        private Message parseMessage(
-            String conversationId,
-            String contentJson,
-            String metadataJson,
-            Message.Role fallbackRole
-        ) throws JsonProcessingException {
-            Map<String, Object> metadata = parseMetadata(metadataJson);
-
-            Optional<List<Part<?>>> parts = parsePartsOptional(contentJson);
-            if (parts.isPresent()) {
-                Message.Builder builder = new Message.Builder()
-                    .role(fallbackRole)
-                    .parts(parts.get())
+                return new Message.Builder()
+                    .role(role)
+                    .parts(parts)
                     .contextId(conversationId)
-                    .metadata(metadata);
-                return builder.build();
-            }
-
-            Optional<Message> asMessage = parseAsMessage(contentJson)
-                .or(() -> unwrapJsonString(contentJson).flatMap(this::parseAsMessage));
-            if (asMessage.isPresent()) {
-                Message parsedMessage = asMessage.get();
-                Message.Builder builder = new Message.Builder(parsedMessage)
-                    .contextId(conversationId);
-                if (parsedMessage.getRole() == null) {
-                    builder.role(fallbackRole);
-                }
-                if (parsedMessage.getMetadata() == null || parsedMessage.getMetadata().isEmpty()) {
-                    builder.metadata(metadata);
-                }
-                return builder.build();
-            }
-
-            List<Part<?>> fallbackParts = parseParts(contentJson);
-            Message.Builder builder = new Message.Builder()
-                .role(fallbackRole)
-                .parts(fallbackParts)
-                .contextId(conversationId)
-                .metadata(metadata);
-            return builder.build();
-        }
-
-        private Map<String, Object> parseMetadata(String metadataJson) throws JsonProcessingException {
-            if (metadataJson == null) {
-                return Map.of();
-            }
-            String normalized = metadataJson.trim();
-            if (normalized.isBlank() || "null".equalsIgnoreCase(normalized) || "\"null\"".equalsIgnoreCase(normalized)) {
-                return Map.of();
-            }
-            Object parsed = objectMapper.readValue(normalized, Object.class);
-            if (parsed instanceof String wrappedJson) {
-                if (wrappedJson.isBlank() || "null".equalsIgnoreCase(wrappedJson.trim())) {
-                    return Map.of();
-                }
-                return objectMapper.readValue(wrappedJson, METADATA_MAP_TYPE);
-            }
-            return objectMapper.convertValue(parsed, METADATA_MAP_TYPE);
-        }
-
-        private Optional<Message> parseAsMessage(String json) {
-            try {
-                return Optional.ofNullable(objectMapper.readValue(json, MESSAGE_TYPE));
-            } catch (JsonProcessingException ignored) {
-                return Optional.empty();
-            }
-        }
-
-        private Optional<List<Part<?>>> parsePartsOptional(String contentJson) {
-            try {
-                return Optional.of(parseParts(contentJson));
-            } catch (JsonProcessingException e) {
-                return Optional.empty();
-            }
-        }
-
-        private List<Part<?>> parseParts(String contentJson) throws JsonProcessingException {
-            try {
-                return objectMapper.readValue(contentJson, PARTS_TYPE);
-            } catch (JsonProcessingException e) {
-                Optional<String> unwrapped = unwrapJsonString(contentJson);
-                if (unwrapped.isEmpty()) {
-                    throw e;
-                }
-                return objectMapper.readValue(unwrapped.get(), PARTS_TYPE);
-            }
-        }
-
-        private Optional<String> unwrapJsonString(String json) {
-            try {
-                String unwrapped = objectMapper.readValue(json, String.class);
-                if (unwrapped == null) {
-                    return Optional.empty();
-                }
-                String normalized = unwrapped.trim();
-                return normalized.isBlank() ? Optional.empty() : Optional.of(normalized);
-            } catch (JsonProcessingException ignored) {
-                return Optional.empty();
+                    .metadata(metadata)
+                    .build();
+            } catch (RuntimeException e) {
+                throw new SQLException("Failed to deserialize message", e);
             }
         }
     }
