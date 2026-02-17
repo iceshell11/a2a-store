@@ -1,5 +1,7 @@
 package io.a2a.extras.taskstore.jdbc;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.a2a.extras.taskstore.A2aTaskStoreProperties;
 import io.a2a.spec.*;
 import org.junit.jupiter.api.BeforeEach;
@@ -103,6 +105,29 @@ class JdbcTaskStoreIntegrationTest {
         Task retrieved = taskStore.get(conversationId);
         assertThat(retrieved.getStatus().state()).isEqualTo(TaskState.COMPLETED);
         assertThat(retrieved.getHistory()).hasSize(2);
+    }
+
+    @Test
+    void saveAndGetTaskWithTwoWordStatus() {
+        String conversationId = "conv-input-required";
+        Task task = new Task.Builder()
+                .id(conversationId)
+                .contextId(conversationId)
+                .status(new TaskStatus(TaskState.INPUT_REQUIRED, null, OffsetDateTime.now()))
+                .build();
+
+        taskStore.save(task);
+
+        Task retrieved = taskStore.get(conversationId);
+        String storedStatus = jdbcTemplate.queryForObject(
+                "SELECT status_state FROM a2a_conversations WHERE conversation_id = ?",
+                String.class,
+                conversationId
+        );
+
+        assertThat(retrieved).isNotNull();
+        assertThat(retrieved.getStatus().state()).isEqualTo(TaskState.INPUT_REQUIRED);
+        assertThat(storedStatus).isEqualTo("input-required");
     }
 
     @Test
@@ -245,6 +270,152 @@ class JdbcTaskStoreIntegrationTest {
     }
 
     @Test
+    void saveAndGetTaskPreservesHistoryMessageMetadata() {
+        String conversationId = "conv-message-metadata";
+        Map<String, Object> messageMetadata = new LinkedHashMap<>();
+        messageMetadata.put("traceId", "trace-123");
+        messageMetadata.put("attempt", 2);
+        messageMetadata.put("tags", List.of("alpha", "beta"));
+
+        io.a2a.spec.Message message = new io.a2a.spec.Message.Builder()
+                .role(io.a2a.spec.Message.Role.USER)
+                .parts(new TextPart("hello with metadata"))
+                .contextId(conversationId)
+                .metadata(messageMetadata)
+                .build();
+
+        Task task = new Task.Builder()
+                .id(conversationId)
+                .contextId(conversationId)
+                .status(new TaskStatus(TaskState.WORKING))
+                .history(List.of(message))
+                .build();
+
+        taskStore.save(task);
+        Task retrieved = taskStore.get(conversationId);
+
+        assertThat(retrieved).isNotNull();
+        assertThat(retrieved.getHistory()).hasSize(1);
+        io.a2a.spec.Message retrievedMessage = retrieved.getHistory().get(0);
+        assertThat(retrievedMessage.getContextId()).isEqualTo(conversationId);
+        assertThat(retrievedMessage.getMetadata()).containsEntry("traceId", "trace-123");
+        assertThat(retrievedMessage.getMetadata().get("attempt").toString()).isEqualTo("2");
+        assertThat(retrievedMessage.getMetadata().get("tags").toString()).contains("alpha");
+    }
+
+    @Test
+    void saveStoresPartsInContentJsonAndMetadataInMetadataColumn() throws Exception {
+        String conversationId = "conv-message-json-shape";
+        io.a2a.spec.Message message = new io.a2a.spec.Message.Builder()
+                .role(io.a2a.spec.Message.Role.AGENT)
+                .parts(new TextPart("payload"))
+                .contextId(conversationId)
+                .metadata(Map.of("channel", "chat", "rank", 7))
+                .build();
+
+        Task task = new Task.Builder()
+                .id(conversationId)
+                .contextId(conversationId)
+                .status(new TaskStatus(TaskState.WORKING))
+                .history(List.of(message))
+                .build();
+
+        taskStore.save(task);
+
+        String storedContentJson = jdbcTemplate.queryForObject(
+                "SELECT content_json FROM a2a_messages WHERE conversation_id = ? ORDER BY sequence_num",
+                String.class,
+                conversationId
+        );
+        String storedMetadataJson = jdbcTemplate.queryForObject(
+                "SELECT metadata_json FROM a2a_messages WHERE conversation_id = ? ORDER BY sequence_num",
+                String.class,
+                conversationId
+        );
+        List<Map<String, Object>> storedParts = parseJson(
+                storedContentJson,
+                new TypeReference<List<Map<String, Object>>>() {}
+        );
+        Map<String, Object> storedMetadata = parseJson(
+                storedMetadataJson,
+                new TypeReference<Map<String, Object>>() {}
+        );
+
+        assertThat(storedParts).hasSize(1);
+        assertThat(storedParts.get(0)).containsEntry("kind", "text");
+        assertThat(storedParts.get(0)).containsEntry("text", "payload");
+        assertThat(storedMetadata).containsEntry("channel", "chat");
+        assertThat(storedMetadata.get("rank").toString()).isEqualTo("7");
+    }
+
+    @Test
+    void saveStoresNullMetadataColumnWhenMessageMetadataMissingAndLoadsEmptyMap() {
+        String conversationId = "conv-message-no-metadata";
+        io.a2a.spec.Message message = new io.a2a.spec.Message.Builder()
+                .role(io.a2a.spec.Message.Role.USER)
+                .parts(new TextPart("payload"))
+                .contextId(conversationId)
+                .build();
+
+        Task task = new Task.Builder()
+                .id(conversationId)
+                .contextId(conversationId)
+                .status(new TaskStatus(TaskState.WORKING))
+                .history(List.of(message))
+                .build();
+
+        taskStore.save(task);
+
+        String storedMetadataJson = jdbcTemplate.queryForObject(
+                "SELECT metadata_json FROM a2a_messages WHERE conversation_id = ? ORDER BY sequence_num",
+                String.class,
+                conversationId
+        );
+        Task retrieved = taskStore.get(conversationId);
+
+        assertThat(storedMetadataJson).isNull();
+        assertThat(retrieved).isNotNull();
+        assertThat(retrieved.getHistory()).hasSize(1);
+        assertThat(retrieved.getHistory().get(0).getMetadata()).isEmpty();
+    }
+
+    @Test
+    void getReadsLegacyPartsOnlyMessageRows() throws Exception {
+        String conversationId = "conv-legacy-parts-json";
+        jdbcTemplate.update(
+                """
+                INSERT INTO a2a_conversations
+                (conversation_id, status_state, status_message, status_timestamp, finalized_at)
+                VALUES (?, ?, CAST(? AS JSON), ?, ?)
+                """,
+                conversationId,
+                TaskState.WORKING.asString(),
+                "null",
+                OffsetDateTime.now(),
+                null
+        );
+
+        String legacyPartsJson = new ObjectMapper().writeValueAsString(List.of(new TextPart("legacy message")));
+        jdbcTemplate.update(
+                """
+                INSERT INTO a2a_messages (conversation_id, role, content_json, sequence_num)
+                VALUES (?, ?, CAST(? AS JSON), ?)
+                """,
+                conversationId,
+                io.a2a.spec.Message.Role.USER.name(),
+                legacyPartsJson,
+                0
+        );
+
+        Task retrieved = taskStore.get(conversationId);
+
+        assertThat(retrieved).isNotNull();
+        assertThat(retrieved.getHistory()).hasSize(1);
+        assertThat(((TextPart) retrieved.getHistory().get(0).getParts().get(0)).getText()).isEqualTo("legacy message");
+        assertThat(retrieved.getHistory().get(0).getMetadata()).isEmpty();
+    }
+
+    @Test
     void saveWithEmptyArtifactsAndMetadataClearsExistingData() {
         String conversationId = "conv-clear-optional-data";
         taskStore.save(createSampleTask(conversationId));
@@ -332,5 +503,15 @@ class JdbcTaskStoreIntegrationTest {
                 .role(role)
                 .parts(new TextPart(content))
                 .build();
+    }
+
+    private <T> T parseJson(String json, TypeReference<T> typeReference) throws Exception {
+        ObjectMapper objectMapper = new ObjectMapper();
+        try {
+            return objectMapper.readValue(json, typeReference);
+        } catch (Exception first) {
+            String unwrapped = objectMapper.readValue(json, String.class);
+            return objectMapper.readValue(unwrapped, typeReference);
+        }
     }
 }

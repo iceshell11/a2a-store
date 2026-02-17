@@ -23,11 +23,15 @@ CREATE TABLE IF NOT EXISTS a2a_messages (
     conversation_id VARCHAR(255) NOT NULL REFERENCES a2a_conversations(conversation_id) ON DELETE CASCADE,
     role VARCHAR(20) NOT NULL,  -- 'USER' or 'AGENT'
     content_json JSONB NOT NULL,  -- Array of Part objects
+    metadata_json JSONB,          -- Message metadata JSON object
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     sequence_num INTEGER NOT NULL,  -- Message order in conversation
     
     CONSTRAINT chk_role CHECK (role IN ('USER', 'AGENT'))
 );
+
+ALTER TABLE a2a_messages
+    ADD COLUMN IF NOT EXISTS metadata_json JSONB;
 
 -- Artifacts table (optional - controlled by configuration)
 -- Uncomment or create conditionally based on a2a.taskstore.store-artifacts=true

@@ -24,9 +24,10 @@ import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.util.AbstractMap;
 import java.util.EnumSet;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.stream.IntStream;
@@ -38,6 +39,7 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
     );
     private static final TypeReference<Artifact> ARTIFACT_TYPE = new TypeReference<>() {};
     private static final TypeReference<Message> MESSAGE_TYPE = new TypeReference<>() {};
+    private static final TypeReference<Map<String, Object>> METADATA_MAP_TYPE = new TypeReference<>() {};
     private static final TypeReference<List<Part<?>>> PARTS_TYPE = new TypeReference<>() {};
     private static final TypeReference<Object> OBJECT_TYPE = new TypeReference<>() {};
     private static final String UPDATE_CONVERSATION_SQL = """
@@ -79,7 +81,7 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
     private void saveConversation(Task task) {
         TaskStatus status = task.getStatus();
         String conversationId = task.getContextId();
-        String statusState = status.state().name().toLowerCase();
+        String statusState = status.state().asString();
         String statusMessage = toJson(status.message());
         OffsetDateTime statusTimestamp = status.timestamp();
         OffsetDateTime finalizedAt = FINAL_STATES.contains(status.state()) ? OffsetDateTime.now() : null;
@@ -125,12 +127,16 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
         }
 
         String sql = """
-            INSERT INTO a2a_messages (conversation_id, role, content_json, sequence_num)
-            VALUES (?, ?, CAST(? AS JSON), ?)
+            INSERT INTO a2a_messages (conversation_id, role, content_json, metadata_json, sequence_num)
+            VALUES (?, ?, CAST(? AS JSON), CAST(? AS JSON), ?)
             """;
 
         batchInsert(sql, messages, (msg, index) -> new Object[]{
-            conversationId, msg.getRole().name(), toJson(msg.getParts()), index
+            conversationId,
+            msg.getRole().name(),
+            toJson(msg.getParts()),
+            toJsonOrNull(msg.getMetadata()),
+            index
         });
     }
 
@@ -173,43 +179,46 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
     @Override
     @Transactional(readOnly = true)
     public Task get(String taskId) {
-        ConversationRow conversation = loadConversation(taskId);
-        if (conversation == null) return null;
-
-        return new Task.Builder()
-            .id(taskId)
-            .contextId(taskId)
-            .status(buildTaskStatus(conversation))
-            .history(loadMessages(taskId))
-            .artifacts(properties.isStoreArtifacts() ? loadArtifacts(taskId) : List.of())
-            .metadata(properties.isStoreMetadata() ? loadMetadata(taskId) : Map.of())
-            .build();
+        return loadConversation(taskId)
+            .map(conversation -> new Task.Builder()
+                .id(taskId)
+                .contextId(taskId)
+                .status(buildTaskStatus(conversation))
+                .history(loadMessages(taskId))
+                .artifacts(properties.isStoreArtifacts() ? loadArtifacts(taskId) : List.of())
+                .metadata(properties.isStoreMetadata() ? loadMetadata(taskId) : Map.of())
+                .build())
+            .orElse(null);
     }
 
-    private ConversationRow loadConversation(String conversationId) {
+    private Optional<ConversationRow> loadConversation(String conversationId) {
         try {
-            return jdbcTemplate.queryForObject(
+            return Optional.ofNullable(jdbcTemplate.queryForObject(
                 "SELECT * FROM a2a_conversations WHERE conversation_id = ?",
                 new ConversationRowMapper(),
                 conversationId
-            );
+            ));
         } catch (EmptyResultDataAccessException e) {
-            return null;
+            return Optional.empty();
         }
     }
 
     private List<Message> loadMessages(String conversationId) {
-        String sql = "SELECT role, content_json FROM a2a_messages WHERE conversation_id = ? ORDER BY sequence_num";
+        String sql = """
+            SELECT conversation_id, role, content_json, metadata_json
+            FROM a2a_messages
+            WHERE conversation_id = ?
+            ORDER BY sequence_num
+            """;
         return jdbcTemplate.query(sql, new MessageRowMapper(objectMapper), conversationId);
     }
 
     private List<Artifact> loadArtifacts(String conversationId) {
         String sql = "SELECT artifact_json FROM a2a_artifacts WHERE conversation_id = ?";
-        List<Artifact> artifacts = jdbcTemplate.query(
+        return jdbcTemplate.query(
             sql,
-            (rs, rowNum) -> fromJson(rs.getString("artifact_json"), ARTIFACT_TYPE),
+            (rs, rowNum) -> fromJson(rs.getString("artifact_json"), ARTIFACT_TYPE).orElse(null),
             conversationId);
-        return artifacts.isEmpty() ? null : artifacts;
     }
 
     private Map<String, Object> loadMetadata(String conversationId) {
@@ -218,15 +227,15 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
             sql,
             (rs, rowNum) -> new AbstractMap.SimpleEntry<>(
                 rs.getString("key"),
-                fromJson(rs.getString("value_json"), OBJECT_TYPE)
+                fromJson(rs.getString("value_json"), OBJECT_TYPE).orElse(null)
             ),
             conversationId
         );
         if (rows.isEmpty()) {
-            return null;
+            return Map.of();
         }
 
-        Map<String, Object> metadata = new HashMap<>();
+        Map<String, Object> metadata = new LinkedHashMap<>(rows.size());
         rows.forEach(entry -> metadata.put(entry.getKey(), entry.getValue()));
         return metadata;
     }
@@ -234,18 +243,18 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
     private TaskStatus buildTaskStatus(ConversationRow conversation) {
         return new TaskStatus(
             TaskState.fromString(conversation.statusState()),
-            readStatusMessage(conversation.statusMessage()),
+            readStatusMessage(conversation.statusMessage()).orElse(null),
             conversation.statusTimestamp()
         );
     }
 
-    private Message readStatusMessage(String statusMessage) {
+    private Optional<Message> readStatusMessage(String statusMessage) {
         if (statusMessage == null) {
-            return null;
+            return Optional.empty();
         }
         String normalized = statusMessage.trim();
         if (normalized.isBlank() || "null".equalsIgnoreCase(normalized) || "\"null\"".equalsIgnoreCase(normalized)) {
-            return null;
+            return Optional.empty();
         }
         return fromJson(normalized, MESSAGE_TYPE);
     }
@@ -260,25 +269,23 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
     @Transactional(readOnly = true)
     public boolean isTaskActive(String taskId) {
         String sql = "SELECT status_state FROM a2a_conversations WHERE conversation_id = ?";
-        String status = queryForObjectOrNull(sql, String.class, taskId);
-        if (status == null) {
-            return false;
-        }
-        return !FINAL_STATES.contains(TaskState.fromString(status));
+        return queryForOptional(sql, String.class, taskId)
+            .map(status -> !FINAL_STATES.contains(TaskState.fromString(status)))
+            .orElse(false);
     }
 
     @Override
     @Transactional(readOnly = true)
     public boolean isTaskFinalized(String taskId) {
         String sql = "SELECT finalized_at FROM a2a_conversations WHERE conversation_id = ?";
-        return queryForObjectOrNull(sql, OffsetDateTime.class, taskId) != null;
+        return queryForOptional(sql, OffsetDateTime.class, taskId).isPresent();
     }
 
-    private <T> T queryForObjectOrNull(String sql, Class<T> requiredType, Object... args) {
+    private <T> Optional<T> queryForOptional(String sql, Class<T> requiredType, Object... args) {
         try {
-            return jdbcTemplate.queryForObject(sql, requiredType, args);
+            return Optional.ofNullable(jdbcTemplate.queryForObject(sql, requiredType, args));
         } catch (EmptyResultDataAccessException e) {
-            return null;
+            return Optional.empty();
         }
     }
 
@@ -290,44 +297,51 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
         }
     }
 
-    private <T> T fromJson(String json, TypeReference<T> typeRef) {
+    private String toJsonOrNull(Map<String, Object> metadata) {
+        if (metadata == null || metadata.isEmpty()) {
+            return null;
+        }
+        return toJson(metadata);
+    }
+
+    private <T> Optional<T> fromJson(String json, TypeReference<T> typeRef) {
         try {
             T value = objectMapper.readValue(json, typeRef);
             if (typeRef == OBJECT_TYPE && value instanceof String stringValue) {
-                String normalized = unwrapJsonString(stringValue);
-                if (normalized != null) {
+                Optional<String> normalized = unwrapJsonString(stringValue);
+                if (normalized.isPresent()) {
                     @SuppressWarnings("unchecked")
-                    T unwrapped = (T) normalized;
-                    return unwrapped;
+                    T unwrapped = (T) normalized.get();
+                    return Optional.of(unwrapped);
                 }
             }
-            return value;
+            return Optional.ofNullable(value);
         } catch (JsonProcessingException e) {
-            String unwrappedJson = unwrapJsonString(json);
-            if (unwrappedJson == null) {
-                return null;
+            Optional<String> unwrappedJson = unwrapJsonString(json);
+            if (unwrappedJson.isEmpty()) {
+                return Optional.empty();
             }
             try {
-                return objectMapper.readValue(unwrappedJson, typeRef);
+                return Optional.ofNullable(objectMapper.readValue(unwrappedJson.get(), typeRef));
             } catch (JsonProcessingException nestedException) {
                 throw new RuntimeException("Failed to deserialize JSON", e);
             }
         }
     }
 
-    private String unwrapJsonString(String json) {
+    private Optional<String> unwrapJsonString(String json) {
         try {
             String unwrapped = objectMapper.readValue(json, String.class);
             if (unwrapped == null) {
-                return null;
+                return Optional.empty();
             }
             String normalized = unwrapped.trim();
             if (normalized.isBlank() || "null".equalsIgnoreCase(normalized)) {
-                return null;
+                return Optional.empty();
             }
-            return normalized;
+            return Optional.of(normalized);
         } catch (JsonProcessingException ignored) {
-            return null;
+            return Optional.empty();
         }
     }
 
@@ -363,17 +377,89 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
         @Override
         public Message mapRow(ResultSet rs, int rowNum) throws SQLException {
             try {
-                String role = rs.getString("role");
+                String conversationId = rs.getString("conversation_id");
+                Message.Role role = Message.Role.valueOf(rs.getString("role"));
                 String contentJson = rs.getString("content_json");
-
-                List<Part<?>> parts = parseParts(contentJson);
-
-                return new Message.Builder()
-                    .role(Message.Role.valueOf(role))
-                    .parts(parts)
-                    .build();
+                String metadataJson = rs.getString("metadata_json");
+                return parseMessage(conversationId, contentJson, metadataJson, role);
             } catch (JsonProcessingException e) {
                 throw new SQLException("Failed to deserialize message", e);
+            }
+        }
+
+        private Message parseMessage(
+            String conversationId,
+            String contentJson,
+            String metadataJson,
+            Message.Role fallbackRole
+        ) throws JsonProcessingException {
+            Map<String, Object> metadata = parseMetadata(metadataJson);
+
+            Optional<List<Part<?>>> parts = parsePartsOptional(contentJson);
+            if (parts.isPresent()) {
+                Message.Builder builder = new Message.Builder()
+                    .role(fallbackRole)
+                    .parts(parts.get())
+                    .contextId(conversationId)
+                    .metadata(metadata);
+                return builder.build();
+            }
+
+            Optional<Message> asMessage = parseAsMessage(contentJson)
+                .or(() -> unwrapJsonString(contentJson).flatMap(this::parseAsMessage));
+            if (asMessage.isPresent()) {
+                Message parsedMessage = asMessage.get();
+                Message.Builder builder = new Message.Builder(parsedMessage)
+                    .contextId(conversationId);
+                if (parsedMessage.getRole() == null) {
+                    builder.role(fallbackRole);
+                }
+                if (parsedMessage.getMetadata() == null || parsedMessage.getMetadata().isEmpty()) {
+                    builder.metadata(metadata);
+                }
+                return builder.build();
+            }
+
+            List<Part<?>> fallbackParts = parseParts(contentJson);
+            Message.Builder builder = new Message.Builder()
+                .role(fallbackRole)
+                .parts(fallbackParts)
+                .contextId(conversationId)
+                .metadata(metadata);
+            return builder.build();
+        }
+
+        private Map<String, Object> parseMetadata(String metadataJson) throws JsonProcessingException {
+            if (metadataJson == null) {
+                return Map.of();
+            }
+            String normalized = metadataJson.trim();
+            if (normalized.isBlank() || "null".equalsIgnoreCase(normalized) || "\"null\"".equalsIgnoreCase(normalized)) {
+                return Map.of();
+            }
+            Object parsed = objectMapper.readValue(normalized, Object.class);
+            if (parsed instanceof String wrappedJson) {
+                if (wrappedJson.isBlank() || "null".equalsIgnoreCase(wrappedJson.trim())) {
+                    return Map.of();
+                }
+                return objectMapper.readValue(wrappedJson, METADATA_MAP_TYPE);
+            }
+            return objectMapper.convertValue(parsed, METADATA_MAP_TYPE);
+        }
+
+        private Optional<Message> parseAsMessage(String json) {
+            try {
+                return Optional.ofNullable(objectMapper.readValue(json, MESSAGE_TYPE));
+            } catch (JsonProcessingException ignored) {
+                return Optional.empty();
+            }
+        }
+
+        private Optional<List<Part<?>>> parsePartsOptional(String contentJson) {
+            try {
+                return Optional.of(parseParts(contentJson));
+            } catch (JsonProcessingException e) {
+                return Optional.empty();
             }
         }
 
@@ -381,24 +467,24 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
             try {
                 return objectMapper.readValue(contentJson, PARTS_TYPE);
             } catch (JsonProcessingException e) {
-                String unwrapped = unwrapJsonString(contentJson);
-                if (unwrapped == null) {
+                Optional<String> unwrapped = unwrapJsonString(contentJson);
+                if (unwrapped.isEmpty()) {
                     throw e;
                 }
-                return objectMapper.readValue(unwrapped, PARTS_TYPE);
+                return objectMapper.readValue(unwrapped.get(), PARTS_TYPE);
             }
         }
 
-        private String unwrapJsonString(String json) {
+        private Optional<String> unwrapJsonString(String json) {
             try {
                 String unwrapped = objectMapper.readValue(json, String.class);
                 if (unwrapped == null) {
-                    return null;
+                    return Optional.empty();
                 }
                 String normalized = unwrapped.trim();
-                return normalized.isBlank() ? null : normalized;
+                return normalized.isBlank() ? Optional.empty() : Optional.of(normalized);
             } catch (JsonProcessingException ignored) {
-                return null;
+                return Optional.empty();
             }
         }
     }
