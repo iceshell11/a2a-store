@@ -4,6 +4,16 @@ spring:
     username: postgres
     password: your_password_here
     driver-class-name: org.postgresql.Driver
+    # Connection Pool (HikariCP) - tune based on your workload
+    hikari:
+      maximum-pool-size: 20          # Max connections (DB capacity / app instances)
+      minimum-idle: 5                # Idle connections to maintain
+      connection-timeout: 30000      # 30s wait for connection from pool
+      idle-timeout: 600000           # 10min idle connection lifetime
+      max-lifetime: 1800000          # 30min max connection lifetime
+      leak-detection-threshold: 60000 # 60s logs potential connection leaks
+      register-mbeans: true          # Enable JMX for monitoring
+      pool-name: A2A-TaskStore-Pool
   sql:
     init:
       mode: always
@@ -17,6 +27,17 @@ a2a:
     store-metadata: true             # Store task metadata (set false to disable)
     batch-size: 100                  # Batch size for bulk operations
     chat-memory-enabled: true        # Register ChatMemory bean for Spring AI
+
+# Metrics (optional - requires spring-boot-starter-actuator)
+# management:
+#   endpoints:
+#     web:
+#       exposure:
+#         include: health,info,metrics
+#   metrics:
+#     enable:
+#       jdbc: true                    # Connection pool metrics
+#       hikaricp: true
 
 # Logging
 logging:
