@@ -41,13 +41,13 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
     private static final TypeReference<Object> OBJECT_TYPE = new TypeReference<>() {};
     private static final String UPDATE_CONVERSATION_SQL = """
         UPDATE a2a_conversations
-        SET status_state = ?, status_message = CAST(? AS JSON), status_timestamp = ?, finalized_at = ?
+        SET status_state = ?, status_message = ?, status_timestamp = ?, finalized_at = ?
         WHERE conversation_id = ?
         """;
     private static final String INSERT_CONVERSATION_SQL = """
         INSERT INTO a2a_conversations
         (conversation_id, status_state, status_message, status_timestamp, finalized_at)
-        VALUES (?, ?, CAST(? AS JSON), ?, ?)
+        VALUES (?, ?, ?, ?, ?)
         """;
 
     private final JdbcTemplate jdbcTemplate;
@@ -123,7 +123,7 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
 
         String sql = """
             INSERT INTO a2a_messages (conversation_id, role, content_json, metadata_json, sequence_num)
-            VALUES (?, ?, CAST(? AS JSON), CAST(? AS JSON), ?)
+            VALUES (?, ?, ?, ?, ?)
             """;
 
         batchInsert(sql, messages, (msg, index) -> new Object[]{
@@ -152,7 +152,7 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
             return;
         }
 
-        String sql = "INSERT INTO a2a_artifacts (conversation_id, artifact_json) VALUES (?, CAST(? AS JSON))";
+        String sql = "INSERT INTO a2a_artifacts (conversation_id, artifact_json) VALUES (?, ?)";
         batchInsert(sql, artifacts, (artifact, idx) -> new Object[]{conversationId, JsonUtils.toJson(artifact)});
     }
 
@@ -164,7 +164,7 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
 
         String sql = """
             INSERT INTO a2a_metadata (conversation_id, "key", value_json)
-            VALUES (?, ?, CAST(? AS JSON))
+            VALUES (?, ?, ?)
             """;
 
         List<Map.Entry<String, Object>> entries = metadata.entrySet().stream().toList();
