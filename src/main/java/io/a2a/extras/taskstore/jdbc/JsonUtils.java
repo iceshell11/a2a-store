@@ -4,13 +4,24 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import io.a2a.spec.Artifact;
+import io.a2a.spec.Message;
+import io.a2a.spec.Part;
 
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public final class JsonUtils {
 
     public static final ObjectMapper MAPPER = new ObjectMapper()
         .registerModule(new JavaTimeModule());
+    
+    public static final TypeReference<Artifact> ARTIFACT_TYPE = new TypeReference<>() {};
+    public static final TypeReference<Message> MESSAGE_TYPE = new TypeReference<>() {};
+    public static final TypeReference<Map<String, Object>> METADATA_MAP_TYPE = new TypeReference<>() {};
+    public static final TypeReference<List<Part<?>>> PARTS_TYPE = new TypeReference<>() {};
+    public static final TypeReference<Object> OBJECT_TYPE = new TypeReference<>() {};
     
     private JsonUtils() {
     }

@@ -1,7 +1,6 @@
 package io.a2a.extras.taskstore.springai;
 
 import io.a2a.extras.taskstore.A2aTaskStoreProperties;
-import io.a2a.server.tasks.TaskStateProvider;
 import io.a2a.server.tasks.TaskStore;
 import io.a2a.spec.Message;
 import io.a2a.spec.Task;
@@ -21,23 +20,26 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static io.a2a.spec.Message.Role.AGENT;
+import static io.a2a.spec.Message.Role.USER;
+
 public class TaskStoreChatMemoryAdapter implements ChatMemory {
 
-    private static final Map<MessageType, io.a2a.spec.Message.Role> MESSAGE_TYPE_TO_ROLE = Map.of(
-        MessageType.USER, io.a2a.spec.Message.Role.USER,
-        MessageType.ASSISTANT, io.a2a.spec.Message.Role.AGENT,
-        MessageType.SYSTEM, io.a2a.spec.Message.Role.USER,
-        MessageType.TOOL, io.a2a.spec.Message.Role.AGENT
+    private static final Map<MessageType, Message.Role> MESSAGE_TYPE_TO_ROLE = Map.of(
+        MessageType.USER, USER,
+        MessageType.ASSISTANT, AGENT,
+        MessageType.SYSTEM, USER,
+        MessageType.TOOL, AGENT
     );
 
-    private static final Map<io.a2a.spec.Message.Role, Function<String, org.springframework.ai.chat.messages.Message>> ROLE_TO_MESSAGE = Map.of(
-        io.a2a.spec.Message.Role.USER, UserMessage::new,
-        io.a2a.spec.Message.Role.AGENT, AssistantMessage::new
+    private static final Map<Message.Role, Function<String, org.springframework.ai.chat.messages.Message>> ROLE_TO_MESSAGE = Map.of(
+        USER, UserMessage::new,
+        AGENT, AssistantMessage::new
     );
 
     private final TaskStore taskStore;
 
-    public TaskStoreChatMemoryAdapter(TaskStore taskStore, TaskStateProvider taskStateProvider, A2aTaskStoreProperties properties) {
+    public TaskStoreChatMemoryAdapter(TaskStore taskStore, A2aTaskStoreProperties properties) {
         this.taskStore = taskStore;
     }
 
@@ -64,10 +66,9 @@ public class TaskStoreChatMemoryAdapter implements ChatMemory {
         }
 
         List<Message> history = task.getHistory();
-        int historySize = history.size();
-        int startIndex = Math.max(0, historySize - lastN);
+        int startIndex = Math.max(0, history.size() - lastN);
 
-        return history.subList(startIndex, historySize).stream()
+        return history.subList(startIndex, history.size()).stream()
             .map(this::convertToSpringAiMessage)
             .toList();
     }
@@ -99,7 +100,7 @@ public class TaskStoreChatMemoryAdapter implements ChatMemory {
 
     private Message convertToA2aMessage(org.springframework.ai.chat.messages.Message springMessage, String conversationId) {
         return new Message.Builder()
-            .role(MESSAGE_TYPE_TO_ROLE.getOrDefault(springMessage.getMessageType(), Message.Role.USER))
+            .role(MESSAGE_TYPE_TO_ROLE.getOrDefault(springMessage.getMessageType(), USER))
             .parts(List.of(new TextPart(springMessage.getText())))
             .contextId(conversationId)
             .taskId(conversationId)

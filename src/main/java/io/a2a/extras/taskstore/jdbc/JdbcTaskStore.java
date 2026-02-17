@@ -1,6 +1,5 @@
 package io.a2a.extras.taskstore.jdbc;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import io.a2a.extras.taskstore.A2aTaskStoreProperties;
 import io.a2a.server.tasks.TaskStateProvider;
 import io.a2a.server.tasks.TaskStore;
@@ -27,6 +26,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 public class JdbcTaskStore implements TaskStore, TaskStateProvider {
@@ -34,11 +34,6 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
     private static final Set<TaskState> FINAL_STATES = EnumSet.of(
         TaskState.COMPLETED, TaskState.CANCELED, TaskState.FAILED, TaskState.REJECTED
     );
-    private static final TypeReference<Artifact> ARTIFACT_TYPE = new TypeReference<>() {};
-    private static final TypeReference<Message> MESSAGE_TYPE = new TypeReference<>() {};
-    private static final TypeReference<Map<String, Object>> METADATA_MAP_TYPE = new TypeReference<>() {};
-    private static final TypeReference<List<Part<?>>> PARTS_TYPE = new TypeReference<>() {};
-    private static final TypeReference<Object> OBJECT_TYPE = new TypeReference<>() {};
     private static final String UPDATE_CONVERSATION_SQL = """
         UPDATE a2a_conversations
         SET status_state = ?, status_message = ?, status_timestamp = ?, finalized_at = ?
@@ -212,33 +207,28 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
         String sql = "SELECT artifact_json FROM a2a_artifacts WHERE conversation_id = ?";
         return jdbcTemplate.query(
             sql,
-            (rs, rowNum) -> JsonUtils.fromJson(rs.getString("artifact_json"), ARTIFACT_TYPE).orElse(null),
+            (rs, rowNum) -> JsonUtils.fromJson(rs.getString("artifact_json"), JsonUtils.ARTIFACT_TYPE).orElse(null),
             conversationId);
     }
 
     private Map<String, Object> loadMetadata(String conversationId) {
         String sql = "SELECT \"key\", value_json FROM a2a_metadata WHERE conversation_id = ?";
-        List<Map.Entry<String, Object>> rows = jdbcTemplate.query(
+        return jdbcTemplate.query(
             sql,
             (rs, rowNum) -> new AbstractMap.SimpleEntry<>(
                 rs.getString("key"),
-                JsonUtils.fromJson(rs.getString("value_json"), OBJECT_TYPE).orElse(null)
+                JsonUtils.fromJson(rs.getString("value_json"), JsonUtils.OBJECT_TYPE).orElse(null)
             ),
             conversationId
-        );
-        if (rows.isEmpty()) {
-            return Map.of();
-        }
-
-        Map<String, Object> metadata = new LinkedHashMap<>(rows.size());
-        rows.forEach(entry -> metadata.put(entry.getKey(), entry.getValue()));
-        return metadata;
+        ).stream()
+            .filter(e -> e.getValue() != null)
+            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1, LinkedHashMap::new));
     }
 
     private TaskStatus buildTaskStatus(ConversationRow conversation) {
         return new TaskStatus(
             TaskState.fromString(conversation.statusState()),
-            JsonUtils.fromJson(conversation.statusMessage(), MESSAGE_TYPE).orElse(null),
+            JsonUtils.fromJson(conversation.statusMessage(), JsonUtils.MESSAGE_TYPE).orElse(null),
             conversation.statusTimestamp()
         );
     }
@@ -300,9 +290,9 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
             try {
                 String conversationId = rs.getString("conversation_id");
                 Message.Role role = Message.Role.valueOf(rs.getString("role"));
-                List<Part<?>> parts = JsonUtils.fromJson(rs.getString("content_json"), PARTS_TYPE)
+                List<Part<?>> parts = JsonUtils.fromJson(rs.getString("content_json"), JsonUtils.PARTS_TYPE)
                     .orElseThrow(() -> new SQLException("Message content_json is null"));
-                Map<String, Object> metadata = JsonUtils.fromJson(rs.getString("metadata_json"), METADATA_MAP_TYPE)
+                Map<String, Object> metadata = JsonUtils.fromJson(rs.getString("metadata_json"), JsonUtils.METADATA_MAP_TYPE)
                     .orElse(Map.of());
 
                 return new Message.Builder()

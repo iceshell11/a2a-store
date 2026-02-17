@@ -1,7 +1,6 @@
 package io.a2a.extras.taskstore.springai;
 
 import io.a2a.extras.taskstore.A2aTaskStoreProperties;
-import io.a2a.server.tasks.TaskStateProvider;
 import io.a2a.server.tasks.TaskStore;
 import io.a2a.spec.*;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,16 +28,13 @@ class TaskStoreChatMemoryAdapterTest {
     @Mock
     private TaskStore taskStore;
 
-    @Mock
-    private TaskStateProvider taskStateProvider;
-
     private A2aTaskStoreProperties properties;
     private TaskStoreChatMemoryAdapter adapter;
 
     @BeforeEach
     void setUp() {
         properties = new A2aTaskStoreProperties();
-        adapter = new TaskStoreChatMemoryAdapter(taskStore, taskStateProvider, properties);
+        adapter = new TaskStoreChatMemoryAdapter(taskStore, properties);
     }
 
     @Test

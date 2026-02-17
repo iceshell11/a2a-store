@@ -44,8 +44,7 @@ public class A2aTaskStoreAutoConfiguration {
     @ConditionalOnProperty(prefix = "a2a.taskstore", name = "chat-memory-enabled", havingValue = "true", matchIfMissing = true)
     public TaskStoreChatMemoryAdapter taskStoreChatMemoryAdapter(
             TaskStore taskStore,
-            TaskStateProvider taskStateProvider,
             A2aTaskStoreProperties properties) {
-        return new TaskStoreChatMemoryAdapter(taskStore, taskStateProvider, properties);
+        return new TaskStoreChatMemoryAdapter(taskStore, properties);
     }
 }
