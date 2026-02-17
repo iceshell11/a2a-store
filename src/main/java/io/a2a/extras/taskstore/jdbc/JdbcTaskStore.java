@@ -1,9 +1,6 @@
 package io.a2a.extras.taskstore.jdbc;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.a2a.extras.taskstore.A2aTaskStoreProperties;
 import io.a2a.server.tasks.TaskStateProvider;
 import io.a2a.server.tasks.TaskStore;
@@ -54,13 +51,11 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
         """;
 
     private final JdbcTemplate jdbcTemplate;
-    private final ObjectMapper objectMapper;
     private final A2aTaskStoreProperties properties;
 
     public JdbcTaskStore(JdbcTemplate jdbcTemplate, A2aTaskStoreProperties properties) {
         this.jdbcTemplate = jdbcTemplate;
         this.properties = properties;
-        this.objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
     }
 
     @Override
@@ -82,7 +77,7 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
         TaskStatus status = task.getStatus();
         String conversationId = task.getContextId();
         String statusState = status.state().asString();
-        String statusMessage = status.message() == null ? null : toJson(status.message());
+        String statusMessage = status.message() == null ? null : JsonUtils.toJson(status.message());
         OffsetDateTime statusTimestamp = status.timestamp();
         OffsetDateTime finalizedAt = FINAL_STATES.contains(status.state()) ? OffsetDateTime.now() : null;
 
@@ -134,8 +129,8 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
         batchInsert(sql, messages, (msg, index) -> new Object[]{
             conversationId,
             msg.getRole().name(),
-            toJson(msg.getParts()),
-            toJsonOrNull(msg.getMetadata()),
+            JsonUtils.toJson(msg.getParts()),
+            JsonUtils.toJson(msg.getMetadata()),
             index
         });
     }
@@ -158,7 +153,7 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
         }
 
         String sql = "INSERT INTO a2a_artifacts (conversation_id, artifact_json) VALUES (?, CAST(? AS JSON))";
-        batchInsert(sql, artifacts, (artifact, idx) -> new Object[]{conversationId, toJson(artifact)});
+        batchInsert(sql, artifacts, (artifact, idx) -> new Object[]{conversationId, JsonUtils.toJson(artifact)});
     }
 
     private void saveMetadata(String conversationId, Map<String, Object> metadata) {
@@ -173,7 +168,7 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
             """;
 
         List<Map.Entry<String, Object>> entries = metadata.entrySet().stream().toList();
-        batchInsert(sql, entries, (entry, idx) -> new Object[]{conversationId, entry.getKey(), toJson(entry.getValue())});
+        batchInsert(sql, entries, (entry, idx) -> new Object[]{conversationId, entry.getKey(), JsonUtils.toJson(entry.getValue())});
     }
 
     @Override
@@ -217,7 +212,7 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
         String sql = "SELECT artifact_json FROM a2a_artifacts WHERE conversation_id = ?";
         return jdbcTemplate.query(
             sql,
-            (rs, rowNum) -> fromJson(rs.getString("artifact_json"), ARTIFACT_TYPE).orElse(null),
+            (rs, rowNum) -> JsonUtils.fromJson(rs.getString("artifact_json"), ARTIFACT_TYPE).orElse(null),
             conversationId);
     }
 
@@ -227,7 +222,7 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
             sql,
             (rs, rowNum) -> new AbstractMap.SimpleEntry<>(
                 rs.getString("key"),
-                fromJson(rs.getString("value_json"), OBJECT_TYPE).orElse(null)
+                JsonUtils.fromJson(rs.getString("value_json"), OBJECT_TYPE).orElse(null)
             ),
             conversationId
         );
@@ -243,13 +238,9 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
     private TaskStatus buildTaskStatus(ConversationRow conversation) {
         return new TaskStatus(
             TaskState.fromString(conversation.statusState()),
-            readStatusMessage(conversation.statusMessage()).orElse(null),
+            JsonUtils.fromJson(conversation.statusMessage(), MESSAGE_TYPE).orElse(null),
             conversation.statusTimestamp()
         );
-    }
-
-    private Optional<Message> readStatusMessage(String statusMessage) {
-        return fromJson(statusMessage, MESSAGE_TYPE);
     }
 
     @Override
@@ -282,63 +273,6 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
         }
     }
 
-    private String toJson(Object obj) {
-        try {
-            return objectMapper.writeValueAsString(obj);
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException("Failed to serialize to JSON", e);
-        }
-    }
-
-    private String toJsonOrNull(Map<String, Object> metadata) {
-        if (metadata == null || metadata.isEmpty()) {
-            return null;
-        }
-        return toJson(metadata);
-    }
-
-    private <T> Optional<T> fromJson(String json, TypeReference<T> typeRef) {
-        if (json == null || json.trim().isEmpty()) {
-            return Optional.empty();
-        }
-        try {
-            T value = readJsonMaybeWrapped(json, typeRef);
-            if (value == null) {
-                return Optional.empty();
-            }
-            if (typeRef == OBJECT_TYPE && value instanceof String stringValue) {
-                Optional<String> unwrappedValue = unwrapJsonString(stringValue);
-                @SuppressWarnings("unchecked")
-                T normalized = (T) unwrappedValue.orElse(stringValue);
-                return Optional.of(normalized);
-            }
-            return Optional.of(value);
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException("Failed to deserialize JSON", e);
-        }
-    }
-
-    private <T> T readJsonMaybeWrapped(String json, TypeReference<T> typeRef) throws JsonProcessingException {
-        try {
-            return objectMapper.readValue(json, typeRef);
-        } catch (JsonProcessingException firstException) {
-            Optional<String> unwrappedJson = unwrapJsonString(json);
-            if (unwrappedJson.isEmpty()) {
-                throw firstException;
-            }
-            return objectMapper.readValue(unwrappedJson.get(), typeRef);
-        }
-    }
-
-    private Optional<String> unwrapJsonString(String json) {
-        try {
-            return Optional.ofNullable(objectMapper.readValue(json, String.class));
-        } catch (JsonProcessingException ignored) {
-            return Optional.empty();
-        }
-    }
-
-    // Row mappers and data classes
     private record ConversationRow(
         String conversationId,
         String statusState,
@@ -366,12 +300,10 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
             try {
                 String conversationId = rs.getString("conversation_id");
                 Message.Role role = Message.Role.valueOf(rs.getString("role"));
-                Optional<List<Part<?>>> parsedParts = fromJson(rs.getString("content_json"), PARTS_TYPE);
-                if (parsedParts.isEmpty()) {
-                    throw new SQLException("Message content_json is null");
-                }
-                List<Part<?>> parts = parsedParts.get();
-                Map<String, Object> metadata = fromJson(rs.getString("metadata_json"), METADATA_MAP_TYPE).orElse(Map.of());
+                List<Part<?>> parts = JsonUtils.fromJson(rs.getString("content_json"), PARTS_TYPE)
+                    .orElseThrow(() -> new SQLException("Message content_json is null"));
+                Map<String, Object> metadata = JsonUtils.fromJson(rs.getString("metadata_json"), METADATA_MAP_TYPE)
+                    .orElse(Map.of());
 
                 return new Message.Builder()
                     .role(role)
