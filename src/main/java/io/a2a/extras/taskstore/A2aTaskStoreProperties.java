@@ -13,4 +13,14 @@ public class A2aTaskStoreProperties {
     private boolean chatMemoryEnabled = true;
     private int batchSize = 100;
     private String tablePrefix = "a2a_";
+    private CacheProperties cache = new CacheProperties();
+
+    @Data
+    public static class CacheProperties {
+        private boolean enabled = true;
+        private int ttlMinutes = 10;
+        private int finalizedTtlMinutes = 60;
+        private int maxSize = 1000;
+        private boolean recordStats = true;
+    }
 }

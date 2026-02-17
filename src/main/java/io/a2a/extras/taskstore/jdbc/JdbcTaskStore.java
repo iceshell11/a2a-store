@@ -1,6 +1,7 @@
 package io.a2a.extras.taskstore.jdbc;
 
 import io.a2a.extras.taskstore.A2aTaskStoreProperties;
+import io.a2a.extras.taskstore.cache.CacheConfig;
 import io.a2a.server.tasks.TaskStateProvider;
 import io.a2a.server.tasks.TaskStore;
 import io.a2a.spec.Artifact;
@@ -9,6 +10,8 @@ import io.a2a.spec.Part;
 import io.a2a.spec.Task;
 import io.a2a.spec.TaskState;
 import io.a2a.spec.TaskStatus;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -55,6 +58,7 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
 
     @Override
     @Transactional
+    @CacheEvict(value = CacheConfig.TASK_CACHE, key = "#task.contextId")
     public void save(Task task) {
         String conversationId = task.getContextId();
         saveConversation(task);
@@ -212,6 +216,7 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
 
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(value = CacheConfig.TASK_CACHE, key = "#taskId", unless = "#result == null")
     public Task get(String taskId) {
         return loadConversation(taskId)
             .map(conversation -> new Task.Builder()
@@ -279,6 +284,7 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
 
     @Override
     @Transactional
+    @CacheEvict(value = CacheConfig.TASK_CACHE, key = "#taskId")
     public void delete(String taskId) {
         jdbcTemplate.update("DELETE FROM a2a_conversations WHERE conversation_id = ?", taskId);
     }

@@ -27,6 +27,12 @@ a2a:
     store-metadata: true             # Store task metadata (set false to disable)
     batch-size: 100                  # Batch size for bulk operations
     chat-memory-enabled: true        # Register ChatMemory bean for Spring AI
+    cache:
+      enabled: true                  # Enable caching of tasks
+      ttl-minutes: 10               # Cache TTL for active tasks
+      finalized-ttl-minutes: 60     # Cache TTL for finalized tasks (read-only)
+      max-size: 1000                # Maximum cached entries
+      record-stats: true            # Enable cache statistics
 
 # Metrics (optional - requires spring-boot-starter-actuator)
 # management:
