@@ -288,18 +288,17 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
         @Override
         public Message mapRow(ResultSet rs, int rowNum) throws SQLException {
             try {
-                String conversationId = rs.getString("conversation_id");
-                Message.Role role = Message.Role.valueOf(rs.getString("role"));
-                List<Part<?>> parts = JsonUtils.fromJson(rs.getString("content_json"), JsonUtils.PARTS_TYPE)
-                    .orElseThrow(() -> new SQLException("Message content_json is null"));
-                Map<String, Object> metadata = JsonUtils.fromJson(rs.getString("metadata_json"), JsonUtils.METADATA_MAP_TYPE)
-                    .orElse(Map.of());
-
                 return new Message.Builder()
-                    .role(role)
-                    .parts(parts)
-                    .contextId(conversationId)
-                    .metadata(metadata)
+                    .contextId(rs.getString("conversation_id"))
+                    .role(Message.Role.valueOf(rs.getString("role")))
+                    .parts(
+                        JsonUtils.fromJson(rs.getString("content_json"), JsonUtils.PARTS_TYPE)
+                            .orElseThrow(() -> new SQLException("Message content_json is null"))
+                    )
+                    .metadata(
+                        JsonUtils.fromJson(rs.getString("metadata_json"), JsonUtils.METADATA_MAP_TYPE)
+                            .orElse(Map.of())
+                    )
                     .build();
             } catch (RuntimeException e) {
                 throw new SQLException("Failed to deserialize message", e);
