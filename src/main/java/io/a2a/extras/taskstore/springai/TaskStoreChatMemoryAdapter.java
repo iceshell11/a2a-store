@@ -42,23 +42,23 @@ public class TaskStoreChatMemoryAdapter implements ChatMemory {
 	}
 
 	@Override
-	public void add(String conversationId, List<org.springframework.ai.chat.messages.Message> messages) {
+	public void add(String taskId, List<org.springframework.ai.chat.messages.Message> messages) {
 		if (CollectionUtils.isEmpty(messages)) {
 			return;
 		}
 
-		Task task = getOrCreateTask(conversationId);
+		Task task = getOrCreateTask(taskId);
 		List<Message> a2aMessages = Stream.concat(
 				task.getHistory().stream(),
-				messages.stream().map(message -> convertToA2aMessage(message, conversationId))
+				messages.stream().map(message -> convertToA2aMessage(message, taskId))
 			)
 			.collect(Collectors.toCollection(ArrayList::new));
 
 		taskStore.save(new Task.Builder(task).history(a2aMessages).build());
 	}
 
-	public List<org.springframework.ai.chat.messages.Message> get(String conversationId, int lastN) {
-		Task task = taskStore.get(conversationId);
+	public List<org.springframework.ai.chat.messages.Message> get(String taskId, int lastN) {
+		Task task = taskStore.get(taskId);
 		if (task == null || CollectionUtils.isEmpty(task.getHistory())) {
 			return List.of();
 		}
@@ -72,36 +72,36 @@ public class TaskStoreChatMemoryAdapter implements ChatMemory {
 	}
 
 	@Override
-	public List<org.springframework.ai.chat.messages.Message> get(String conversationId) {
-		return get(conversationId, Integer.MAX_VALUE);
+	public List<org.springframework.ai.chat.messages.Message> get(String taskId) {
+		return get(taskId, Integer.MAX_VALUE);
 	}
 
 	@Override
-	public void clear(String conversationId) {
-		Task task = taskStore.get(conversationId);
+	public void clear(String taskId) {
+		Task task = taskStore.get(taskId);
 		if (task != null) {
 			taskStore.save(new Task.Builder(task).history(List.of()).build());
 		}
 	}
 
-	private Task getOrCreateTask(String conversationId) {
-		return Optional.ofNullable(taskStore.get(conversationId))
+	private Task getOrCreateTask(String taskId) {
+		return Optional.ofNullable(taskStore.get(taskId))
 			.orElseGet(() ->
 				new Task.Builder()
-					.id(conversationId)
-					.contextId(conversationId)
+					.id(taskId)
+					.contextId(taskId)
 					.status(new TaskStatus(TaskState.WORKING, null, OffsetDateTime.now()))
 					.history(List.of())
 					.build()
 			);
 	}
 
-	private Message convertToA2aMessage(org.springframework.ai.chat.messages.Message springMessage, String conversationId) {
+	private Message convertToA2aMessage(org.springframework.ai.chat.messages.Message springMessage, String taskId) {
 		return new Message.Builder()
 			.role(MESSAGE_TYPE_TO_ROLE.getOrDefault(springMessage.getMessageType(), USER))
 			.parts(List.of(new TextPart(springMessage.getText())))
-			.contextId(conversationId)
-			.taskId(conversationId)
+			.contextId(taskId)
+			.taskId(taskId)
 			.build();
 	}
 

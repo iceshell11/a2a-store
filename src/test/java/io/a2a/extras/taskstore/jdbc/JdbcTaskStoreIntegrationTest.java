@@ -46,15 +46,15 @@ class JdbcTaskStoreIntegrationTest {
 
     @Test
     void saveAndGetTask() {
-        String conversationId = "conv-123";
-        Task task = createSampleTask(conversationId);
+        String taskId = "conv-123";
+        Task task = createSampleTask(taskId);
 
         taskStore.save(task);
-        Task retrieved = taskStore.get(conversationId);
+        Task retrieved = taskStore.get(taskId);
 
         assertThat(retrieved).isNotNull();
-        assertThat(retrieved.getId()).isEqualTo(conversationId);
-        assertThat(retrieved.getContextId()).isEqualTo(conversationId);
+        assertThat(retrieved.getId()).isEqualTo(taskId);
+        assertThat(retrieved.getContextId()).isEqualTo(taskId);
         assertThat(retrieved.getStatus().state()).isEqualTo(TaskState.WORKING);
         assertThat(retrieved.getHistory()).hasSize(1);
         assertThat(retrieved.getArtifacts()).hasSize(1);
@@ -67,11 +67,11 @@ class JdbcTaskStoreIntegrationTest {
         properties.setStoreMetadata(false);
         taskStore = new JdbcTaskStore(jdbcTemplate, properties);
 
-        String conversationId = "conv-456";
-        Task task = createSampleTask(conversationId);
+        String taskId = "conv-456";
+        Task task = createSampleTask(taskId);
 
         taskStore.save(task);
-        Task retrieved = taskStore.get(conversationId);
+        Task retrieved = taskStore.get(taskId);
 
         assertThat(retrieved).isNotNull();
         assertThat(retrieved.getHistory()).hasSize(1);
@@ -81,8 +81,8 @@ class JdbcTaskStoreIntegrationTest {
 
     @Test
     void updateExistingTask() {
-        String conversationId = "conv-789";
-        Task task = createSampleTask(conversationId);
+        String taskId = "conv-789";
+        Task task = createSampleTask(taskId);
 
         taskStore.save(task);
 
@@ -91,7 +91,7 @@ class JdbcTaskStoreIntegrationTest {
         io.a2a.spec.Message newMessage = new io.a2a.spec.Message.Builder()
                 .role(io.a2a.spec.Message.Role.AGENT)
                 .parts(new TextPart("Response"))
-                .contextId(conversationId)
+                .contextId(taskId)
                 .build();
 
         Task updatedTask = new Task.Builder(task)
@@ -101,27 +101,27 @@ class JdbcTaskStoreIntegrationTest {
 
         taskStore.save(updatedTask);
 
-        Task retrieved = taskStore.get(conversationId);
+        Task retrieved = taskStore.get(taskId);
         assertThat(retrieved.getStatus().state()).isEqualTo(TaskState.COMPLETED);
         assertThat(retrieved.getHistory()).hasSize(2);
     }
 
     @Test
     void saveAndGetTaskWithTwoWordStatus() {
-        String conversationId = "conv-input-required";
+        String taskId = "conv-input-required";
         Task task = new Task.Builder()
-                .id(conversationId)
-                .contextId(conversationId)
+                .id(taskId)
+                .contextId(taskId)
                 .status(new TaskStatus(TaskState.INPUT_REQUIRED, null, OffsetDateTime.now()))
                 .build();
 
         taskStore.save(task);
 
-        Task retrieved = taskStore.get(conversationId);
+        Task retrieved = taskStore.get(taskId);
         String storedStatus = jdbcTemplate.queryForObject(
                 "SELECT status_state FROM a2a_conversations WHERE conversation_id = ?",
                 String.class,
-                conversationId
+                taskId
         );
 
         assertThat(retrieved).isNotNull();
@@ -131,14 +131,14 @@ class JdbcTaskStoreIntegrationTest {
 
     @Test
     void deleteTask() {
-        String conversationId = "conv-delete";
-        Task task = createSampleTask(conversationId);
+        String taskId = "conv-delete";
+        Task task = createSampleTask(taskId);
 
         taskStore.save(task);
-        assertThat(taskStore.get(conversationId)).isNotNull();
+        assertThat(taskStore.get(taskId)).isNotNull();
 
-        taskStore.delete(conversationId);
-        assertThat(taskStore.get(conversationId)).isNull();
+        taskStore.delete(taskId);
+        assertThat(taskStore.get(taskId)).isNull();
     }
 
     @Test
@@ -203,7 +203,7 @@ class JdbcTaskStoreIntegrationTest {
 
     @Test
     void saveWithMultipleMessages() {
-        String conversationId = "conv-multi";
+        String taskId = "conv-multi";
 
         List<io.a2a.spec.Message> messages = List.of(
                 createMessage(io.a2a.spec.Message.Role.USER, "Message 1"),
@@ -213,15 +213,15 @@ class JdbcTaskStoreIntegrationTest {
         );
 
         Task task = new Task.Builder()
-                .id(conversationId)
-                .contextId(conversationId)
+                .id(taskId)
+                .contextId(taskId)
                 .status(new TaskStatus(TaskState.WORKING))
                 .history(messages)
                 .build();
 
         taskStore.save(task);
 
-        Task retrieved = taskStore.get(conversationId);
+        Task retrieved = taskStore.get(taskId);
         assertThat(retrieved.getHistory()).hasSize(4);
 
         // Verify order is preserved
@@ -231,16 +231,16 @@ class JdbcTaskStoreIntegrationTest {
 
     @Test
     void saveAndGetTaskWithStatusMessageAndComplexMetadata() {
-        String conversationId = "conv-status-metadata";
+        String taskId = "conv-status-metadata";
         io.a2a.spec.Message statusMessage = new io.a2a.spec.Message.Builder()
                 .role(io.a2a.spec.Message.Role.AGENT)
                 .parts(new TextPart("Status update"))
-                .contextId(conversationId)
+                .contextId(taskId)
                 .build();
 
         Task task = new Task.Builder()
-                .id(conversationId)
-                .contextId(conversationId)
+                .id(taskId)
+                .contextId(taskId)
                 .status(new TaskStatus(TaskState.WORKING, statusMessage, OffsetDateTime.now()))
                 .history(List.of(createMessage(io.a2a.spec.Message.Role.USER, "hello")))
                 .metadata(Map.of(
@@ -252,7 +252,7 @@ class JdbcTaskStoreIntegrationTest {
                 .build();
 
         taskStore.save(task);
-        Task retrieved = taskStore.get(conversationId);
+        Task retrieved = taskStore.get(taskId);
 
         assertThat(retrieved.getStatus().message()).isNotNull();
         assertThat(retrieved.getStatus().message().getRole()).isEqualTo(io.a2a.spec.Message.Role.AGENT);
@@ -270,7 +270,7 @@ class JdbcTaskStoreIntegrationTest {
 
     @Test
     void saveAndGetTaskPreservesHistoryMessageMetadata() {
-        String conversationId = "conv-message-metadata";
+        String taskId = "conv-message-metadata";
         Map<String, Object> messageMetadata = new LinkedHashMap<>();
         messageMetadata.put("traceId", "trace-123");
         messageMetadata.put("attempt", 2);
@@ -279,42 +279,78 @@ class JdbcTaskStoreIntegrationTest {
         io.a2a.spec.Message message = new io.a2a.spec.Message.Builder()
                 .role(io.a2a.spec.Message.Role.USER)
                 .parts(new TextPart("hello with metadata"))
-                .contextId(conversationId)
+                .contextId(taskId)
                 .metadata(messageMetadata)
                 .build();
 
         Task task = new Task.Builder()
-                .id(conversationId)
-                .contextId(conversationId)
+                .id(taskId)
+                .contextId(taskId)
                 .status(new TaskStatus(TaskState.WORKING))
                 .history(List.of(message))
                 .build();
 
         taskStore.save(task);
-        Task retrieved = taskStore.get(conversationId);
+        Task retrieved = taskStore.get(taskId);
 
         assertThat(retrieved).isNotNull();
         assertThat(retrieved.getHistory()).hasSize(1);
         io.a2a.spec.Message retrievedMessage = retrieved.getHistory().get(0);
-        assertThat(retrievedMessage.getContextId()).isEqualTo(conversationId);
+        assertThat(retrievedMessage.getContextId()).isEqualTo(taskId);
         assertThat(retrievedMessage.getMetadata()).containsEntry("traceId", "trace-123");
         assertThat(retrievedMessage.getMetadata().get("attempt").toString()).isEqualTo("2");
         assertThat(retrievedMessage.getMetadata().get("tags").toString()).contains("alpha");
     }
 
     @Test
+    void saveAndGetTaskRestoresMessageIdsAndTaskId() {
+        String taskId = "conv-message-id-task-id";
+        io.a2a.spec.Message first = new io.a2a.spec.Message.Builder()
+                .messageId("custom-msg-001")
+                .role(io.a2a.spec.Message.Role.USER)
+                .parts(new TextPart("first"))
+                .contextId(taskId)
+                .taskId(taskId)
+                .build();
+        io.a2a.spec.Message second = new io.a2a.spec.Message.Builder()
+                .messageId("custom-msg-002")
+                .role(io.a2a.spec.Message.Role.AGENT)
+                .parts(new TextPart("second"))
+                .contextId(taskId)
+                .taskId(taskId)
+                .build();
+
+        Task task = new Task.Builder()
+                .id(taskId)
+                .contextId(taskId)
+                .status(new TaskStatus(TaskState.WORKING))
+                .history(List.of(first, second))
+                .build();
+
+        taskStore.save(task);
+        Task retrieved = taskStore.get(taskId);
+
+        assertThat(retrieved).isNotNull();
+        assertThat(retrieved.getHistory()).hasSize(2);
+        assertThat(retrieved.getHistory().get(0).getMessageId()).isEqualTo("custom-msg-001");
+        assertThat(retrieved.getHistory().get(0).getTaskId()).isEqualTo(taskId);
+        assertThat(retrieved.getHistory().get(1).getMessageId()).isEqualTo("custom-msg-002");
+        assertThat(retrieved.getHistory().get(1).getTaskId()).isEqualTo(taskId);
+    }
+
+    @Test
     void saveStoresPartsInContentJsonAndMetadataInMetadataColumn() throws Exception {
-        String conversationId = "conv-message-json-shape";
+        String taskId = "conv-message-json-shape";
         io.a2a.spec.Message message = new io.a2a.spec.Message.Builder()
                 .role(io.a2a.spec.Message.Role.AGENT)
                 .parts(new TextPart("payload"))
-                .contextId(conversationId)
+                .contextId(taskId)
                 .metadata(Map.of("channel", "chat", "rank", 7))
                 .build();
 
         Task task = new Task.Builder()
-                .id(conversationId)
-                .contextId(conversationId)
+                .id(taskId)
+                .contextId(taskId)
                 .status(new TaskStatus(TaskState.WORKING))
                 .history(List.of(message))
                 .build();
@@ -324,12 +360,12 @@ class JdbcTaskStoreIntegrationTest {
         String storedContentJson = jdbcTemplate.queryForObject(
                 "SELECT content_json FROM a2a_messages WHERE conversation_id = ? ORDER BY sequence_num",
                 String.class,
-                conversationId
+                taskId
         );
         String storedMetadataJson = jdbcTemplate.queryForObject(
                 "SELECT metadata_json FROM a2a_messages WHERE conversation_id = ? ORDER BY sequence_num",
                 String.class,
-                conversationId
+                taskId
         );
         List<Map<String, Object>> storedParts = parseJson(
                 storedContentJson,
@@ -349,16 +385,16 @@ class JdbcTaskStoreIntegrationTest {
 
     @Test
     void saveStoresNullMetadataColumnWhenMessageMetadataMissingAndLoadsEmptyMap() {
-        String conversationId = "conv-message-no-metadata";
+        String taskId = "conv-message-no-metadata";
         io.a2a.spec.Message message = new io.a2a.spec.Message.Builder()
                 .role(io.a2a.spec.Message.Role.USER)
                 .parts(new TextPart("payload"))
-                .contextId(conversationId)
+                .contextId(taskId)
                 .build();
 
         Task task = new Task.Builder()
-                .id(conversationId)
-                .contextId(conversationId)
+                .id(taskId)
+                .contextId(taskId)
                 .status(new TaskStatus(TaskState.WORKING))
                 .history(List.of(message))
                 .build();
@@ -368,9 +404,9 @@ class JdbcTaskStoreIntegrationTest {
         String storedMetadataJson = jdbcTemplate.queryForObject(
                 "SELECT metadata_json FROM a2a_messages WHERE conversation_id = ? ORDER BY sequence_num",
                 String.class,
-                conversationId
+                taskId
         );
-        Task retrieved = taskStore.get(conversationId);
+        Task retrieved = taskStore.get(taskId);
 
         assertThat(storedMetadataJson).isNull();
         assertThat(retrieved).isNotNull();
@@ -380,14 +416,14 @@ class JdbcTaskStoreIntegrationTest {
 
     @Test
     void getReadsLegacyPartsOnlyMessageRows() throws Exception {
-        String conversationId = "conv-legacy-parts-json";
+        String taskId = "conv-legacy-parts-json";
         jdbcTemplate.update(
                 """
                 INSERT INTO a2a_conversations
                 (conversation_id, status_state, status_message_json, status_timestamp, finalized_at)
                 VALUES (?, ?, CAST(? AS JSON), ?, ?)
                 """,
-                conversationId,
+                taskId,
                 TaskState.WORKING.asString(),
                 "null",
                 OffsetDateTime.now(),
@@ -400,29 +436,31 @@ class JdbcTaskStoreIntegrationTest {
                 INSERT INTO a2a_messages (message_id, conversation_id, role, content_json, sequence_num)
                 VALUES (?, ?, ?, CAST(? AS JSON), ?)
                 """,
-                conversationId + "-msg-0",
-                conversationId,
+                taskId + "-msg-0",
+                taskId,
                 io.a2a.spec.Message.Role.USER.name(),
                 legacyPartsJson,
                 0
         );
 
-        Task retrieved = taskStore.get(conversationId);
+        Task retrieved = taskStore.get(taskId);
 
         assertThat(retrieved).isNotNull();
         assertThat(retrieved.getHistory()).hasSize(1);
         assertThat(((TextPart) retrieved.getHistory().get(0).getParts().get(0)).getText()).isEqualTo("legacy message");
+        assertThat(retrieved.getHistory().get(0).getMessageId()).isEqualTo(taskId + "-msg-0");
+        assertThat(retrieved.getHistory().get(0).getTaskId()).isEqualTo(taskId);
         assertThat(retrieved.getHistory().get(0).getMetadata()).isEmpty();
     }
 
     @Test
     void saveWithEmptyArtifactsAndMetadataClearsExistingData() {
-        String conversationId = "conv-clear-optional-data";
-        taskStore.save(createSampleTask(conversationId));
+        String taskId = "conv-clear-optional-data";
+        taskStore.save(createSampleTask(taskId));
 
         Task updatedTask = new Task.Builder()
-                .id(conversationId)
-                .contextId(conversationId)
+                .id(taskId)
+                .contextId(taskId)
                 .status(new TaskStatus(TaskState.WORKING))
                 .history(List.of(createMessage(io.a2a.spec.Message.Role.USER, "updated")))
                 .artifacts(List.of())
@@ -430,7 +468,7 @@ class JdbcTaskStoreIntegrationTest {
                 .build();
 
         taskStore.save(updatedTask);
-        Task retrieved = taskStore.get(conversationId);
+        Task retrieved = taskStore.get(taskId);
 
         assertThat(retrieved.getArtifacts()).isNullOrEmpty();
         assertThat(retrieved.getMetadata()).isNullOrEmpty();
@@ -441,7 +479,7 @@ class JdbcTaskStoreIntegrationTest {
         properties.setBatchSize(2);
         taskStore = new JdbcTaskStore(jdbcTemplate, properties);
 
-        String conversationId = "conv-batch";
+        String taskId = "conv-batch";
         List<io.a2a.spec.Message> messages = IntStream.range(0, 5)
                 .mapToObj(i -> createMessage(io.a2a.spec.Message.Role.USER, "msg-" + i))
                 .toList();
@@ -457,8 +495,8 @@ class JdbcTaskStoreIntegrationTest {
         IntStream.range(0, 5).forEach(i -> metadata.put("key-" + i, "value-" + i));
 
         Task task = new Task.Builder()
-                .id(conversationId)
-                .contextId(conversationId)
+                .id(taskId)
+                .contextId(taskId)
                 .status(new TaskStatus(TaskState.WORKING))
                 .history(messages)
                 .artifacts(artifacts)
@@ -466,7 +504,7 @@ class JdbcTaskStoreIntegrationTest {
                 .build();
 
         taskStore.save(task);
-        Task retrieved = taskStore.get(conversationId);
+        Task retrieved = taskStore.get(taskId);
 
         assertThat(retrieved.getHistory()).hasSize(5);
         assertThat(((TextPart) retrieved.getHistory().get(0).getParts().get(0)).getText()).isEqualTo("msg-0");
@@ -477,7 +515,7 @@ class JdbcTaskStoreIntegrationTest {
 
     @Test
     void saveAndLoadArtifactWithAllFields() {
-        String conversationId = "conv-artifact-full";
+        String taskId = "conv-artifact-full";
         
         Artifact artifact = new Artifact.Builder()
                 .artifactId("art-full-001")
@@ -489,15 +527,15 @@ class JdbcTaskStoreIntegrationTest {
                 .build();
 
         Task task = new Task.Builder()
-                .id(conversationId)
-                .contextId(conversationId)
+                .id(taskId)
+                .contextId(taskId)
                 .status(new TaskStatus(TaskState.WORKING))
                 .history(List.of(createMessage(io.a2a.spec.Message.Role.USER, "test")))
                 .artifacts(List.of(artifact))
                 .build();
 
         taskStore.save(task);
-        Task retrieved = taskStore.get(conversationId);
+        Task retrieved = taskStore.get(taskId);
 
         assertThat(retrieved.getArtifacts()).hasSize(1);
         Artifact retrievedArtifact = retrieved.getArtifacts().get(0);
@@ -515,7 +553,7 @@ class JdbcTaskStoreIntegrationTest {
 
     @Test
     void saveAndLoadArtifactWithNullOptionalFields() {
-        String conversationId = "conv-artifact-nulls";
+        String taskId = "conv-artifact-nulls";
         
         // Artifact with only required fields
         Artifact artifact = new Artifact.Builder()
@@ -528,15 +566,15 @@ class JdbcTaskStoreIntegrationTest {
                 .build();
 
         Task task = new Task.Builder()
-                .id(conversationId)
-                .contextId(conversationId)
+                .id(taskId)
+                .contextId(taskId)
                 .status(new TaskStatus(TaskState.WORKING))
                 .history(List.of(createMessage(io.a2a.spec.Message.Role.USER, "test")))
                 .artifacts(List.of(artifact))
                 .build();
 
         taskStore.save(task);
-        Task retrieved = taskStore.get(conversationId);
+        Task retrieved = taskStore.get(taskId);
 
         assertThat(retrieved.getArtifacts()).hasSize(1);
         Artifact retrievedArtifact = retrieved.getArtifacts().get(0);
@@ -555,7 +593,7 @@ class JdbcTaskStoreIntegrationTest {
 
     @Test
     void saveAndLoadMultipleArtifactsPreservesOrdering() {
-        String conversationId = "conv-artifact-order";
+        String taskId = "conv-artifact-order";
         
         List<Artifact> artifacts = List.of(
                 new Artifact.Builder()
@@ -576,15 +614,15 @@ class JdbcTaskStoreIntegrationTest {
         );
 
         Task task = new Task.Builder()
-                .id(conversationId)
-                .contextId(conversationId)
+                .id(taskId)
+                .contextId(taskId)
                 .status(new TaskStatus(TaskState.WORKING))
                 .history(List.of(createMessage(io.a2a.spec.Message.Role.USER, "test")))
                 .artifacts(artifacts)
                 .build();
 
         taskStore.save(task);
-        Task retrieved = taskStore.get(conversationId);
+        Task retrieved = taskStore.get(taskId);
 
         assertThat(retrieved.getArtifacts()).hasSize(3);
         
@@ -600,7 +638,7 @@ class JdbcTaskStoreIntegrationTest {
 
     @Test
     void saveAndLoadArtifactWithComplexParts() {
-        String conversationId = "conv-artifact-complex";
+        String taskId = "conv-artifact-complex";
         
         // Create artifact with multiple parts of different types
         Artifact artifact = new Artifact.Builder()
@@ -621,15 +659,15 @@ class JdbcTaskStoreIntegrationTest {
                 .build();
 
         Task task = new Task.Builder()
-                .id(conversationId)
-                .contextId(conversationId)
+                .id(taskId)
+                .contextId(taskId)
                 .status(new TaskStatus(TaskState.WORKING))
                 .history(List.of(createMessage(io.a2a.spec.Message.Role.USER, "test")))
                 .artifacts(List.of(artifact))
                 .build();
 
         taskStore.save(task);
-        Task retrieved = taskStore.get(conversationId);
+        Task retrieved = taskStore.get(taskId);
 
         assertThat(retrieved.getArtifacts()).hasSize(1);
         Artifact retrievedArtifact = retrieved.getArtifacts().get(0);
@@ -657,7 +695,7 @@ class JdbcTaskStoreIntegrationTest {
 
     @Test
     void artifactRoundTripDataIntegrity() {
-        String conversationId = "conv-artifact-integrity";
+        String taskId = "conv-artifact-integrity";
         
         // Create artifact with all possible data types
         Artifact original = new Artifact.Builder()
@@ -678,15 +716,15 @@ class JdbcTaskStoreIntegrationTest {
                 .build();
 
         Task task = new Task.Builder()
-                .id(conversationId)
-                .contextId(conversationId)
+                .id(taskId)
+                .contextId(taskId)
                 .status(new TaskStatus(TaskState.WORKING))
                 .history(List.of(createMessage(io.a2a.spec.Message.Role.USER, "test")))
                 .artifacts(List.of(original))
                 .build();
 
         taskStore.save(task);
-        Task retrieved = taskStore.get(conversationId);
+        Task retrieved = taskStore.get(taskId);
 
         Artifact roundTripped = retrieved.getArtifacts().get(0);
         
@@ -720,12 +758,12 @@ class JdbcTaskStoreIntegrationTest {
 
     @Test
     void updateArtifactsReplacesPreviousOnes() {
-        String conversationId = "conv-artifact-update";
+        String taskId = "conv-artifact-update";
         
         // First save with initial artifacts
         Task initialTask = new Task.Builder()
-                .id(conversationId)
-                .contextId(conversationId)
+                .id(taskId)
+                .contextId(taskId)
                 .status(new TaskStatus(TaskState.WORKING))
                 .history(List.of(createMessage(io.a2a.spec.Message.Role.USER, "test")))
                 .artifacts(List.of(
@@ -741,8 +779,8 @@ class JdbcTaskStoreIntegrationTest {
         
         // Update with different artifacts
         Task updatedTask = new Task.Builder()
-                .id(conversationId)
-                .contextId(conversationId)
+                .id(taskId)
+                .contextId(taskId)
                 .status(new TaskStatus(TaskState.COMPLETED))
                 .history(List.of(createMessage(io.a2a.spec.Message.Role.USER, "test")))
                 .artifacts(List.of(
@@ -755,7 +793,7 @@ class JdbcTaskStoreIntegrationTest {
                 .build();
 
         taskStore.save(updatedTask);
-        Task retrieved = taskStore.get(conversationId);
+        Task retrieved = taskStore.get(taskId);
 
         // Should have only the updated artifact
         assertThat(retrieved.getArtifacts()).hasSize(1);
@@ -763,11 +801,11 @@ class JdbcTaskStoreIntegrationTest {
         assertThat(retrieved.getArtifacts().get(0).name()).isEqualTo("Updated Artifact");
     }
 
-    private Task createSampleTask(String conversationId) {
+    private Task createSampleTask(String taskId) {
         io.a2a.spec.Message message = new io.a2a.spec.Message.Builder()
                 .role(io.a2a.spec.Message.Role.USER)
                 .parts(new TextPart("Hello, agent!"))
-                .contextId(conversationId)
+                .contextId(taskId)
                 .build();
 
         Artifact artifact = new Artifact.Builder()
@@ -777,8 +815,8 @@ class JdbcTaskStoreIntegrationTest {
                 .build();
 
         return new Task.Builder()
-                .id(conversationId)
-                .contextId(conversationId)
+                .id(taskId)
+                .contextId(taskId)
                 .status(new TaskStatus(TaskState.WORKING, null, OffsetDateTime.now()))
                 .history(List.of(message))
                 .artifacts(List.of(artifact))

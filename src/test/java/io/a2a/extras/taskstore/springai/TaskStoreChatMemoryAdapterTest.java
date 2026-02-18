@@ -39,26 +39,26 @@ class TaskStoreChatMemoryAdapterTest {
 
     @Test
     void addMessagesToNewConversation() {
-        String conversationId = "conv-123";
+        String taskId = "conv-123";
         UserMessage springMessage = new UserMessage("Hello, agent!");
 
-        when(taskStore.get(conversationId)).thenReturn(null);
+        when(taskStore.get(taskId)).thenReturn(null);
 
-        adapter.add(conversationId, List.of(springMessage));
+        adapter.add(taskId, List.of(springMessage));
 
-        verify(taskStore).get(conversationId);
+        verify(taskStore).get(taskId);
         verify(taskStore).save(any(Task.class));
     }
 
     @Test
     void addMessagesToExistingConversation() {
-        String conversationId = "conv-123";
+        String taskId = "conv-123";
         UserMessage springMessage = new UserMessage("Follow up message");
 
-        Task existingTask = createSampleTask(conversationId);
-        when(taskStore.get(conversationId)).thenReturn(existingTask);
+        Task existingTask = createSampleTask(taskId);
+        when(taskStore.get(taskId)).thenReturn(existingTask);
 
-        adapter.add(conversationId, List.of(springMessage));
+        adapter.add(taskId, List.of(springMessage));
 
         verify(taskStore).save(argThat(task ->
             task.getHistory().size() == 2
@@ -67,9 +67,9 @@ class TaskStoreChatMemoryAdapterTest {
 
     @Test
     void addEmptyMessageList() {
-        String conversationId = "conv-123";
+        String taskId = "conv-123";
 
-        adapter.add(conversationId, List.of());
+        adapter.add(taskId, List.of());
 
         verify(taskStore, never()).get(any());
         verify(taskStore, never()).save(any());
@@ -77,9 +77,9 @@ class TaskStoreChatMemoryAdapterTest {
 
     @Test
     void addNullMessageList() {
-        String conversationId = "conv-123";
+        String taskId = "conv-123";
 
-        adapter.add(conversationId, (List<Message>) null);
+        adapter.add(taskId, (List<Message>) null);
 
         verify(taskStore, never()).get(any());
         verify(taskStore, never()).save(any());
@@ -87,12 +87,12 @@ class TaskStoreChatMemoryAdapterTest {
 
     @Test
     void getAllMessages() {
-        String conversationId = "conv-123";
-        Task task = createSampleTask(conversationId);
+        String taskId = "conv-123";
+        Task task = createSampleTask(taskId);
 
-        when(taskStore.get(conversationId)).thenReturn(task);
+        when(taskStore.get(taskId)).thenReturn(task);
 
-        List<Message> messages = adapter.get(conversationId);
+        List<Message> messages = adapter.get(taskId);
 
         assertThat(messages).hasSize(1);
         assertThat(messages.get(0)).isInstanceOf(UserMessage.class);
@@ -100,99 +100,99 @@ class TaskStoreChatMemoryAdapterTest {
 
     @Test
     void getLastNMessages() {
-        String conversationId = "conv-123";
-        Task task = createTaskWithMultipleMessages(conversationId, 5);
+        String taskId = "conv-123";
+        Task task = createTaskWithMultipleMessages(taskId, 5);
 
-        when(taskStore.get(conversationId)).thenReturn(task);
+        when(taskStore.get(taskId)).thenReturn(task);
 
-        List<Message> messages = adapter.get(conversationId, 3);
+        List<Message> messages = adapter.get(taskId, 3);
 
         assertThat(messages).hasSize(3);
     }
 
     @Test
     void getLastNMessagesWhenNExceedsHistorySize() {
-        String conversationId = "conv-123";
-        Task task = createTaskWithMultipleMessages(conversationId, 2);
+        String taskId = "conv-123";
+        Task task = createTaskWithMultipleMessages(taskId, 2);
 
-        when(taskStore.get(conversationId)).thenReturn(task);
+        when(taskStore.get(taskId)).thenReturn(task);
 
-        List<Message> messages = adapter.get(conversationId, 10);
+        List<Message> messages = adapter.get(taskId, 10);
 
         assertThat(messages).hasSize(2);
     }
 
     @Test
     void getLastNMessagesWhenNIsZero() {
-        String conversationId = "conv-123";
-        Task task = createTaskWithMultipleMessages(conversationId, 3);
+        String taskId = "conv-123";
+        Task task = createTaskWithMultipleMessages(taskId, 3);
 
-        when(taskStore.get(conversationId)).thenReturn(task);
+        when(taskStore.get(taskId)).thenReturn(task);
 
-        List<Message> messages = adapter.get(conversationId, 0);
+        List<Message> messages = adapter.get(taskId, 0);
 
         assertThat(messages).isEmpty();
     }
 
     @Test
     void getFromNonExistentConversation() {
-        String conversationId = "conv-missing";
+        String taskId = "conv-missing";
 
-        when(taskStore.get(conversationId)).thenReturn(null);
+        when(taskStore.get(taskId)).thenReturn(null);
 
-        List<Message> messages = adapter.get(conversationId);
+        List<Message> messages = adapter.get(taskId);
 
         assertThat(messages).isEmpty();
     }
 
     @Test
     void getFromConversationWithEmptyHistory() {
-        String conversationId = "conv-empty";
+        String taskId = "conv-empty";
         Task task = new Task.Builder()
-                .id(conversationId)
-                .contextId(conversationId)
+                .id(taskId)
+                .contextId(taskId)
                 .status(new TaskStatus(TaskState.WORKING))
                 .history(List.of())
                 .build();
 
-        when(taskStore.get(conversationId)).thenReturn(task);
+        when(taskStore.get(taskId)).thenReturn(task);
 
-        List<Message> messages = adapter.get(conversationId);
+        List<Message> messages = adapter.get(taskId);
 
         assertThat(messages).isEmpty();
     }
 
     @Test
     void clearConversation() {
-        String conversationId = "conv-123";
-        Task task = createSampleTask(conversationId);
+        String taskId = "conv-123";
+        Task task = createSampleTask(taskId);
 
-        when(taskStore.get(conversationId)).thenReturn(task);
+        when(taskStore.get(taskId)).thenReturn(task);
 
-        adapter.clear(conversationId);
+        adapter.clear(taskId);
 
         verify(taskStore).save(argThat(t -> t.getHistory().isEmpty()));
     }
 
     @Test
     void clearNonExistentConversation() {
-        String conversationId = "conv-missing";
+        String taskId = "conv-missing";
 
-        when(taskStore.get(conversationId)).thenReturn(null);
+        when(taskStore.get(taskId)).thenReturn(null);
 
-        adapter.clear(conversationId);
+        adapter.clear(taskId);
 
         verify(taskStore, never()).save(any());
     }
 
     @Test
     void convertUserMessage() {
-        String conversationId = "conv-123";
+        String taskId = "conv-123";
         UserMessage springMessage = new UserMessage("User question");
 
-        when(taskStore.get(conversationId)).thenReturn(null);
+        when(taskStore.get(taskId)).thenReturn(null);
 
-        adapter.add(conversationId, List.of(springMessage));
+        adapter.add(taskId, List.of(springMessage));
 
         verify(taskStore).save(argThat(task -> {
             if (task.getHistory().isEmpty()) return false;
@@ -203,12 +203,12 @@ class TaskStoreChatMemoryAdapterTest {
 
     @Test
     void convertAssistantMessage() {
-        String conversationId = "conv-123";
+        String taskId = "conv-123";
         AssistantMessage springMessage = new AssistantMessage("Assistant response");
 
-        when(taskStore.get(conversationId)).thenReturn(null);
+        when(taskStore.get(taskId)).thenReturn(null);
 
-        adapter.add(conversationId, List.of(springMessage));
+        adapter.add(taskId, List.of(springMessage));
 
         verify(taskStore).save(argThat(task -> {
             if (task.getHistory().isEmpty()) return false;
@@ -219,12 +219,12 @@ class TaskStoreChatMemoryAdapterTest {
 
     @Test
     void convertSystemMessage() {
-        String conversationId = "conv-123";
+        String taskId = "conv-123";
         SystemMessage springMessage = new SystemMessage("System instruction");
 
-        when(taskStore.get(conversationId)).thenReturn(null);
+        when(taskStore.get(taskId)).thenReturn(null);
 
-        adapter.add(conversationId, List.of(springMessage));
+        adapter.add(taskId, List.of(springMessage));
 
         verify(taskStore).save(argThat(task -> {
             if (task.getHistory().isEmpty()) return false;
@@ -235,13 +235,13 @@ class TaskStoreChatMemoryAdapterTest {
 
     @Test
     void convertToolMessage() {
-        String conversationId = "conv-123";
+        String taskId = "conv-123";
         Message springMessage = mock(Message.class);
         when(springMessage.getMessageType()).thenReturn(MessageType.TOOL);
         when(springMessage.getText()).thenReturn("Tool output");
-        when(taskStore.get(conversationId)).thenReturn(null);
+        when(taskStore.get(taskId)).thenReturn(null);
 
-        adapter.add(conversationId, List.of(springMessage));
+        adapter.add(taskId, List.of(springMessage));
 
         verify(taskStore).save(argThat(task -> {
             if (task.getHistory().isEmpty()) return false;
@@ -252,23 +252,23 @@ class TaskStoreChatMemoryAdapterTest {
 
     @Test
     void extractTextContent() {
-        String conversationId = "conv-123";
+        String taskId = "conv-123";
         io.a2a.spec.Message a2aMessage = new io.a2a.spec.Message.Builder()
             .role(io.a2a.spec.Message.Role.USER)
             .parts(new TextPart("Hello"))
-            .contextId(conversationId)
+            .contextId(taskId)
             .build();
 
         Task task = new Task.Builder()
-            .id(conversationId)
-            .contextId(conversationId)
+            .id(taskId)
+            .contextId(taskId)
             .status(new TaskStatus(TaskState.WORKING))
             .history(List.of(a2aMessage))
             .build();
 
-        when(taskStore.get(conversationId)).thenReturn(task);
+        when(taskStore.get(taskId)).thenReturn(task);
 
-        List<Message> messages = adapter.get(conversationId);
+        List<Message> messages = adapter.get(taskId);
 
         assertThat(messages).hasSize(1);
         assertThat(messages.get(0).getText()).isEqualTo("Hello");
@@ -276,55 +276,55 @@ class TaskStoreChatMemoryAdapterTest {
 
     @Test
     void extractTextContentIgnoresNonTextParts() {
-        String conversationId = "conv-123";
+        String taskId = "conv-123";
         io.a2a.spec.Message a2aMessage = new io.a2a.spec.Message.Builder()
                 .role(io.a2a.spec.Message.Role.USER)
                 .parts(new DataPart(java.util.Map.of("key", "value")))
-                .contextId(conversationId)
+                .contextId(taskId)
                 .build();
 
         Task task = new Task.Builder()
-                .id(conversationId)
-                .contextId(conversationId)
+                .id(taskId)
+                .contextId(taskId)
                 .status(new TaskStatus(TaskState.WORKING))
                 .history(List.of(a2aMessage))
                 .build();
 
-        when(taskStore.get(conversationId)).thenReturn(task);
+        when(taskStore.get(taskId)).thenReturn(task);
 
-        List<Message> messages = adapter.get(conversationId);
+        List<Message> messages = adapter.get(taskId);
 
         assertThat(messages).hasSize(1);
         assertThat(messages.get(0).getText()).isEmpty();
     }
 
-    private Task createSampleTask(String conversationId) {
+    private Task createSampleTask(String taskId) {
         io.a2a.spec.Message message = new io.a2a.spec.Message.Builder()
             .role(io.a2a.spec.Message.Role.USER)
             .parts(new TextPart("Initial message"))
-            .contextId(conversationId)
+            .contextId(taskId)
             .build();
 
         return new Task.Builder()
-            .id(conversationId)
-            .contextId(conversationId)
+            .id(taskId)
+            .contextId(taskId)
             .status(new TaskStatus(TaskState.WORKING))
             .history(List.of(message))
             .build();
     }
 
-    private Task createTaskWithMultipleMessages(String conversationId, int messageCount) {
+    private Task createTaskWithMultipleMessages(String taskId, int messageCount) {
         List<io.a2a.spec.Message> messages = IntStream.range(0, messageCount)
             .mapToObj(i -> new io.a2a.spec.Message.Builder()
                 .role(i % 2 == 0 ? io.a2a.spec.Message.Role.USER : io.a2a.spec.Message.Role.AGENT)
                 .parts(new TextPart("Message " + i))
-                .contextId(conversationId)
+                .contextId(taskId)
                 .build())
             .toList();
 
         return new Task.Builder()
-            .id(conversationId)
-            .contextId(conversationId)
+            .id(taskId)
+            .contextId(taskId)
             .status(new TaskStatus(TaskState.WORKING))
             .history(messages)
             .build();

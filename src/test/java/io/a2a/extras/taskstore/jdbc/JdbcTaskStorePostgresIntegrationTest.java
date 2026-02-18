@@ -106,12 +106,12 @@ class JdbcTaskStorePostgresIntegrationTest {
 
     @Test
     void saveAndGetTaskWithJsonbColumns() {
-        String conversationId = "conv-postgres-123";
+        String taskId = "conv-postgres-123";
         
         io.a2a.spec.Message message = new io.a2a.spec.Message.Builder()
                 .role(io.a2a.spec.Message.Role.USER)
                 .parts(new TextPart("Hello from PostgreSQL!"))
-                .contextId(conversationId)
+                .contextId(taskId)
                 .metadata(Map.of("source", "postgres-test", "priority", 1))
                 .build();
 
@@ -122,8 +122,8 @@ class JdbcTaskStorePostgresIntegrationTest {
                 .build();
 
         Task task = new Task.Builder()
-                .id(conversationId)
-                .contextId(conversationId)
+                .id(taskId)
+                .contextId(taskId)
                 .status(new TaskStatus(TaskState.WORKING, null, OffsetDateTime.now()))
                 .history(List.of(message))
                 .artifacts(List.of(artifact))
@@ -134,11 +134,11 @@ class JdbcTaskStorePostgresIntegrationTest {
         // ERROR: column content_json is of type jsonb but expression is of type character varying
         taskStore.save(task);
         
-        Task retrieved = taskStore.get(conversationId);
+        Task retrieved = taskStore.get(taskId);
 
         assertThat(retrieved).isNotNull();
-        assertThat(retrieved.getId()).isEqualTo(conversationId);
-        assertThat(retrieved.getContextId()).isEqualTo(conversationId);
+        assertThat(retrieved.getId()).isEqualTo(taskId);
+        assertThat(retrieved.getContextId()).isEqualTo(taskId);
         assertThat(retrieved.getStatus().state()).isEqualTo(TaskState.WORKING);
         assertThat(retrieved.getHistory()).hasSize(1);
         assertThat(retrieved.getArtifacts()).hasSize(1);
@@ -151,13 +151,13 @@ class JdbcTaskStorePostgresIntegrationTest {
 
     @Test
     void saveTaskWithComplexJsonbData() {
-        String conversationId = "conv-complex-jsonb";
+        String taskId = "conv-complex-jsonb";
         
         // Create message with nested metadata
         io.a2a.spec.Message message = new io.a2a.spec.Message.Builder()
                 .role(io.a2a.spec.Message.Role.AGENT)
                 .parts(new TextPart("Complex response"))
-                .contextId(conversationId)
+                .contextId(taskId)
                 .metadata(Map.of(
                         "nested", Map.of("deep", "value"),
                         "array", List.of(1, 2, 3),
@@ -167,15 +167,15 @@ class JdbcTaskStorePostgresIntegrationTest {
                 .build();
 
         Task task = new Task.Builder()
-                .id(conversationId)
-                .contextId(conversationId)
+                .id(taskId)
+                .contextId(taskId)
                 .status(new TaskStatus(TaskState.COMPLETED, null, OffsetDateTime.now()))
                 .history(List.of(message))
                 .build();
 
         taskStore.save(task);
         
-        Task retrieved = taskStore.get(conversationId);
+        Task retrieved = taskStore.get(taskId);
 
         assertThat(retrieved).isNotNull();
         assertThat(retrieved.getHistory()).hasSize(1);
@@ -193,7 +193,7 @@ class JdbcTaskStorePostgresIntegrationTest {
         properties.setBatchSize(2); // Force multiple batches
         taskStore = new JdbcTaskStore(jdbcTemplate, properties);
 
-        String conversationId = "conv-batch-jsonb";
+        String taskId = "conv-batch-jsonb";
         
         List<io.a2a.spec.Message> messages = List.of(
                 createMessage(io.a2a.spec.Message.Role.USER, "Message 1"),
@@ -204,8 +204,8 @@ class JdbcTaskStorePostgresIntegrationTest {
         );
 
         Task task = new Task.Builder()
-                .id(conversationId)
-                .contextId(conversationId)
+                .id(taskId)
+                .contextId(taskId)
                 .status(new TaskStatus(TaskState.WORKING))
                 .history(messages)
                 .build();
@@ -213,7 +213,7 @@ class JdbcTaskStorePostgresIntegrationTest {
         // Batch insert with JSONB should work correctly
         taskStore.save(task);
         
-        Task retrieved = taskStore.get(conversationId);
+        Task retrieved = taskStore.get(taskId);
 
         assertThat(retrieved.getHistory()).hasSize(5);
         assertThat(retrieved.getHistory().get(0).getRole()).isEqualTo(io.a2a.spec.Message.Role.USER);

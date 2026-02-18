@@ -89,6 +89,28 @@ class JdbcTaskStoreCacheTest {
     }
 
     @Test
+    void saveShouldEvictCacheByTaskIdWhenContextIdDiffers() {
+        String taskId = "evict-by-id-task";
+        Task task = new Task.Builder()
+                .id(taskId)
+                .contextId("different-context")
+                .status(new TaskStatus(TaskState.SUBMITTED, null, OffsetDateTime.now()))
+                .history(List.of())
+                .build();
+        taskStore.save(task);
+
+        taskStore.get(taskId); // populate cache
+
+        Task updatedTask = new Task.Builder(task)
+                .status(new TaskStatus(TaskState.WORKING, null, OffsetDateTime.now()))
+                .build();
+        taskStore.save(updatedTask);
+
+        Task result = taskStore.get(taskId);
+        assertThat(result.getStatus().state()).isEqualTo(TaskState.WORKING);
+    }
+
+    @Test
     void deleteShouldEvictCache() {
         // Given
         String taskId = "delete-task-1";
