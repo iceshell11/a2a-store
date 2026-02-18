@@ -47,10 +47,21 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
 
     private final JdbcTemplate jdbcTemplate;
     private final A2aTaskStoreProperties properties;
+    private final JsonbAdapter jsonbAdapter;
 
     public JdbcTaskStore(JdbcTemplate jdbcTemplate, A2aTaskStoreProperties properties) {
         this.jdbcTemplate = jdbcTemplate;
         this.properties = properties;
+        this.jsonbAdapter = createJsonbAdapter(jdbcTemplate);
+    }
+
+    private static JsonbAdapter createJsonbAdapter(JdbcTemplate jdbcTemplate) {
+        try {
+            String url = jdbcTemplate.getDataSource().getConnection().getMetaData().getURL();
+            return JsonbAdapter.forDatabase(url);
+        } catch (SQLException e) {
+            return new JsonbAdapter.StandardJsonbAdapter();
+        }
     }
 
     @Override
@@ -80,7 +91,7 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
         int updatedRows = jdbcTemplate.update(
             UPDATE_CONVERSATION_SQL,
             statusState,
-            statusMessage,
+            jsonbAdapter.adapt(statusMessage),
             statusTimestamp,
             finalizedAt,
             conversationId
@@ -95,7 +106,7 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
                 INSERT_CONVERSATION_SQL,
                 conversationId,
                 statusState,
-                statusMessage,
+                jsonbAdapter.adapt(statusMessage),
                 statusTimestamp,
                 finalizedAt
             );
@@ -103,7 +114,7 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
             jdbcTemplate.update(
                 UPDATE_CONVERSATION_SQL,
                 statusState,
-                statusMessage,
+                jsonbAdapter.adapt(statusMessage),
                 statusTimestamp,
                 finalizedAt,
                 conversationId
@@ -139,8 +150,8 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
         batchInsert(sql, messages, (msg, index) -> new Object[]{
             conversationId,
             msg.getRole().name(),
-            JsonUtils.toJson(msg.getParts()),
-            JsonUtils.toJson(msg.getMetadata()),
+            jsonbAdapter.adapt(JsonUtils.toJson(msg.getParts())),
+            jsonbAdapter.adapt(JsonUtils.toJson(msg.getMetadata())),
             index
         });
     }
@@ -153,8 +164,8 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
         batchInsert(sql, messages, (msg, index) -> new Object[]{
             conversationId,
             msg.getRole().name(),
-            JsonUtils.toJson(msg.getParts()),
-            JsonUtils.toJson(msg.getMetadata()),
+            jsonbAdapter.adapt(JsonUtils.toJson(msg.getParts())),
+            jsonbAdapter.adapt(JsonUtils.toJson(msg.getMetadata())),
             startSequence + index
         });
     }
@@ -177,14 +188,17 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
         }
 
         String sql = "INSERT INTO a2a_artifacts (conversation_id, artifact_json) VALUES (?, ?)";
-        batchInsert(sql, artifacts, (artifact, idx) -> new Object[]{conversationId, JsonUtils.toJson(artifact)});
+        batchInsert(sql, artifacts, (artifact, idx) -> new Object[]{
+                conversationId,
+                jsonbAdapter.adapt(JsonUtils.toJson(artifact))
+        });
     }
 
     private void saveMetadata(String conversationId, Map<String, Object> metadata) {
         String metadataJson = metadata.isEmpty() ? null : JsonUtils.toJson(metadata);
         jdbcTemplate.update(
             "UPDATE a2a_conversations SET metadata_json = ? WHERE conversation_id = ?",
-            metadataJson,
+            jsonbAdapter.adapt(metadataJson),
             conversationId
         );
     }
