@@ -62,7 +62,7 @@ class JdbcTaskStorePostgresIntegrationTest {
             CREATE TABLE IF NOT EXISTS a2a_conversations (
                 conversation_id VARCHAR(255) PRIMARY KEY,
                 status_state VARCHAR(50) NOT NULL DEFAULT 'submitted',
-                status_message JSONB,
+                status_message_json JSONB,
                 status_timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                 metadata_json JSONB,
                 created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -73,22 +73,33 @@ class JdbcTaskStorePostgresIntegrationTest {
 
         jdbcTemplate.execute("""
             CREATE TABLE IF NOT EXISTS a2a_messages (
-                message_id SERIAL PRIMARY KEY,
+                message_id VARCHAR(255) NOT NULL,
                 conversation_id VARCHAR(255) NOT NULL REFERENCES a2a_conversations(conversation_id) ON DELETE CASCADE,
                 role VARCHAR(20) NOT NULL,
                 content_json JSONB NOT NULL,
                 metadata_json JSONB,
                 created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-                sequence_num INTEGER NOT NULL
+                updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                sequence_num INTEGER NOT NULL,
+                
+                PRIMARY KEY (message_id, conversation_id)
             )
             """);
 
         jdbcTemplate.execute("""
             CREATE TABLE IF NOT EXISTS a2a_artifacts (
-                artifact_id SERIAL PRIMARY KEY,
+                artifact_id VARCHAR(255) NOT NULL,
                 conversation_id VARCHAR(255) NOT NULL REFERENCES a2a_conversations(conversation_id) ON DELETE CASCADE,
-                artifact_json JSONB NOT NULL,
-                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                name VARCHAR(500),
+                description TEXT,
+                content_json JSONB NOT NULL,
+                metadata_json JSONB,
+                extensions_json JSONB,
+                sequence_num INTEGER NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                
+                PRIMARY KEY (artifact_id, conversation_id)
             )
             """);
     }

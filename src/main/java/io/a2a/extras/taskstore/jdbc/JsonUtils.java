@@ -22,6 +22,7 @@ public final class JsonUtils {
     public static final TypeReference<Map<String, Object>> METADATA_MAP_TYPE = new TypeReference<>() {};
     public static final TypeReference<List<Part<?>>> PARTS_TYPE = new TypeReference<>() {};
     public static final TypeReference<Object> OBJECT_TYPE = new TypeReference<>() {};
+    public static final TypeReference<List<String>> EXTENSIONS_TYPE = new TypeReference<>() {};
     
     private JsonUtils() {
     }

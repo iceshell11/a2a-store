@@ -384,7 +384,7 @@ class JdbcTaskStoreIntegrationTest {
         jdbcTemplate.update(
                 """
                 INSERT INTO a2a_conversations
-                (conversation_id, status_state, status_message, status_timestamp, finalized_at)
+                (conversation_id, status_state, status_message_json, status_timestamp, finalized_at)
                 VALUES (?, ?, CAST(? AS JSON), ?, ?)
                 """,
                 conversationId,
@@ -397,9 +397,10 @@ class JdbcTaskStoreIntegrationTest {
         String legacyPartsJson = new ObjectMapper().writeValueAsString(List.of(new TextPart("legacy message")));
         jdbcTemplate.update(
                 """
-                INSERT INTO a2a_messages (conversation_id, role, content_json, sequence_num)
-                VALUES (?, ?, CAST(? AS JSON), ?)
+                INSERT INTO a2a_messages (message_id, conversation_id, role, content_json, sequence_num)
+                VALUES (?, ?, ?, CAST(? AS JSON), ?)
                 """,
+                conversationId + "-msg-0",
                 conversationId,
                 io.a2a.spec.Message.Role.USER.name(),
                 legacyPartsJson,
@@ -472,6 +473,294 @@ class JdbcTaskStoreIntegrationTest {
         assertThat(((TextPart) retrieved.getHistory().get(4).getParts().get(0)).getText()).isEqualTo("msg-4");
         assertThat(retrieved.getArtifacts()).hasSize(5);
         assertThat(retrieved.getMetadata()).hasSize(5);
+    }
+
+    @Test
+    void saveAndLoadArtifactWithAllFields() {
+        String conversationId = "conv-artifact-full";
+        
+        Artifact artifact = new Artifact.Builder()
+                .artifactId("art-full-001")
+                .name("Full Artifact")
+                .description("This is a complete artifact with all fields")
+                .parts(new TextPart("Artifact content text"))
+                .metadata(Map.of("author", "test", "version", 1, "tags", List.of("important", "test")))
+                .extensions(List.of("ext1", "ext2"))
+                .build();
+
+        Task task = new Task.Builder()
+                .id(conversationId)
+                .contextId(conversationId)
+                .status(new TaskStatus(TaskState.WORKING))
+                .history(List.of(createMessage(io.a2a.spec.Message.Role.USER, "test")))
+                .artifacts(List.of(artifact))
+                .build();
+
+        taskStore.save(task);
+        Task retrieved = taskStore.get(conversationId);
+
+        assertThat(retrieved.getArtifacts()).hasSize(1);
+        Artifact retrievedArtifact = retrieved.getArtifacts().get(0);
+        
+        // Verify all fields are preserved
+        assertThat(retrievedArtifact.artifactId()).isEqualTo("art-full-001");
+        assertThat(retrievedArtifact.name()).isEqualTo("Full Artifact");
+        assertThat(retrievedArtifact.description()).isEqualTo("This is a complete artifact with all fields");
+        assertThat(retrievedArtifact.parts()).hasSize(1);
+        assertThat(((TextPart) retrievedArtifact.parts().get(0)).getText()).isEqualTo("Artifact content text");
+        assertThat(retrievedArtifact.metadata()).containsEntry("author", "test");
+        assertThat(retrievedArtifact.metadata()).containsEntry("version", 1);
+        assertThat(retrievedArtifact.extensions()).containsExactly("ext1", "ext2");
+    }
+
+    @Test
+    void saveAndLoadArtifactWithNullOptionalFields() {
+        String conversationId = "conv-artifact-nulls";
+        
+        // Artifact with only required fields
+        Artifact artifact = new Artifact.Builder()
+                .artifactId("art-minimal-001")
+                .name(null)
+                .description(null)
+                .parts(new TextPart("Minimal content"))
+                .metadata(null)
+                .extensions(null)
+                .build();
+
+        Task task = new Task.Builder()
+                .id(conversationId)
+                .contextId(conversationId)
+                .status(new TaskStatus(TaskState.WORKING))
+                .history(List.of(createMessage(io.a2a.spec.Message.Role.USER, "test")))
+                .artifacts(List.of(artifact))
+                .build();
+
+        taskStore.save(task);
+        Task retrieved = taskStore.get(conversationId);
+
+        assertThat(retrieved.getArtifacts()).hasSize(1);
+        Artifact retrievedArtifact = retrieved.getArtifacts().get(0);
+        
+        // Verify required fields
+        assertThat(retrievedArtifact.artifactId()).isEqualTo("art-minimal-001");
+        assertThat(retrievedArtifact.parts()).hasSize(1);
+        assertThat(((TextPart) retrievedArtifact.parts().get(0)).getText()).isEqualTo("Minimal content");
+        
+        // Verify optional fields are null
+        assertThat(retrievedArtifact.name()).isNull();
+        assertThat(retrievedArtifact.description()).isNull();
+        assertThat(retrievedArtifact.metadata()).isEmpty();
+        assertThat(retrievedArtifact.extensions()).isEmpty();
+    }
+
+    @Test
+    void saveAndLoadMultipleArtifactsPreservesOrdering() {
+        String conversationId = "conv-artifact-order";
+        
+        List<Artifact> artifacts = List.of(
+                new Artifact.Builder()
+                        .artifactId("art-first")
+                        .name("First Artifact")
+                        .parts(new TextPart("First content"))
+                        .build(),
+                new Artifact.Builder()
+                        .artifactId("art-second")
+                        .name("Second Artifact")
+                        .parts(new TextPart("Second content"))
+                        .build(),
+                new Artifact.Builder()
+                        .artifactId("art-third")
+                        .name("Third Artifact")
+                        .parts(new TextPart("Third content"))
+                        .build()
+        );
+
+        Task task = new Task.Builder()
+                .id(conversationId)
+                .contextId(conversationId)
+                .status(new TaskStatus(TaskState.WORKING))
+                .history(List.of(createMessage(io.a2a.spec.Message.Role.USER, "test")))
+                .artifacts(artifacts)
+                .build();
+
+        taskStore.save(task);
+        Task retrieved = taskStore.get(conversationId);
+
+        assertThat(retrieved.getArtifacts()).hasSize(3);
+        
+        // Verify order is preserved
+        assertThat(retrieved.getArtifacts().get(0).artifactId()).isEqualTo("art-first");
+        assertThat(retrieved.getArtifacts().get(1).artifactId()).isEqualTo("art-second");
+        assertThat(retrieved.getArtifacts().get(2).artifactId()).isEqualTo("art-third");
+        
+        assertThat(retrieved.getArtifacts().get(0).name()).isEqualTo("First Artifact");
+        assertThat(retrieved.getArtifacts().get(1).name()).isEqualTo("Second Artifact");
+        assertThat(retrieved.getArtifacts().get(2).name()).isEqualTo("Third Artifact");
+    }
+
+    @Test
+    void saveAndLoadArtifactWithComplexParts() {
+        String conversationId = "conv-artifact-complex";
+        
+        // Create artifact with multiple parts of different types
+        Artifact artifact = new Artifact.Builder()
+                .artifactId("art-complex-001")
+                .name("Complex Artifact")
+                .description("Artifact with multiple parts")
+                .parts(
+                        new TextPart("Text part 1"),
+                        new TextPart("Text part 2")
+                )
+                .metadata(Map.of(
+                        "nested", Map.of("key", "value"),
+                        "array", List.of(1, 2, 3),
+                        "boolean", true,
+                        "number", 42
+                ))
+                .extensions(List.of("custom-ext", "another-ext"))
+                .build();
+
+        Task task = new Task.Builder()
+                .id(conversationId)
+                .contextId(conversationId)
+                .status(new TaskStatus(TaskState.WORKING))
+                .history(List.of(createMessage(io.a2a.spec.Message.Role.USER, "test")))
+                .artifacts(List.of(artifact))
+                .build();
+
+        taskStore.save(task);
+        Task retrieved = taskStore.get(conversationId);
+
+        assertThat(retrieved.getArtifacts()).hasSize(1);
+        Artifact retrievedArtifact = retrieved.getArtifacts().get(0);
+        
+        // Verify complex parts
+        assertThat(retrievedArtifact.parts()).hasSize(2);
+        assertThat(((TextPart) retrievedArtifact.parts().get(0)).getText()).isEqualTo("Text part 1");
+        assertThat(((TextPart) retrievedArtifact.parts().get(1)).getText()).isEqualTo("Text part 2");
+        
+        // Verify complex metadata
+        @SuppressWarnings("unchecked")
+        Map<String, Object> nested = (Map<String, Object>) retrievedArtifact.metadata().get("nested");
+        assertThat(nested).containsEntry("key", "value");
+        
+        @SuppressWarnings("unchecked")
+        List<Integer> array = (List<Integer>) retrievedArtifact.metadata().get("array");
+        assertThat(array).containsExactly(1, 2, 3);
+        
+        assertThat(retrievedArtifact.metadata().get("boolean")).isEqualTo(true);
+        assertThat(retrievedArtifact.metadata().get("number")).isEqualTo(42);
+        
+        // Verify extensions
+        assertThat(retrievedArtifact.extensions()).containsExactly("custom-ext", "another-ext");
+    }
+
+    @Test
+    void artifactRoundTripDataIntegrity() {
+        String conversationId = "conv-artifact-integrity";
+        
+        // Create artifact with all possible data types
+        Artifact original = new Artifact.Builder()
+                .artifactId("art-integrity-001")
+                .name("Data Integrity Test")
+                .description("Testing complete data round-trip without loss")
+                .parts(new TextPart("Content that should not change"))
+                .metadata(new java.util.HashMap<>() {{
+                        put("string", "value");
+                        put("integer", 123);
+                        put("double", 45.67);
+                        put("boolean", true);
+                        put("nullValue", null);
+                        put("list", List.of("a", "b", "c"));
+                        put("map", Map.of("nested", "data"));
+                }})
+                .extensions(List.of("ext1", "ext2", "ext3"))
+                .build();
+
+        Task task = new Task.Builder()
+                .id(conversationId)
+                .contextId(conversationId)
+                .status(new TaskStatus(TaskState.WORKING))
+                .history(List.of(createMessage(io.a2a.spec.Message.Role.USER, "test")))
+                .artifacts(List.of(original))
+                .build();
+
+        taskStore.save(task);
+        Task retrieved = taskStore.get(conversationId);
+
+        Artifact roundTripped = retrieved.getArtifacts().get(0);
+        
+        // Deep comparison of all fields
+        assertThat(roundTripped.artifactId()).isEqualTo(original.artifactId());
+        assertThat(roundTripped.name()).isEqualTo(original.name());
+        assertThat(roundTripped.description()).isEqualTo(original.description());
+        
+        // Parts comparison
+        assertThat(roundTripped.parts()).hasSize(original.parts().size());
+        for (int i = 0; i < original.parts().size(); i++) {
+            Part<?> originalPart = original.parts().get(i);
+            Part<?> roundTrippedPart = roundTripped.parts().get(i);
+            assertThat(roundTrippedPart).isInstanceOf(originalPart.getClass());
+            if (originalPart instanceof TextPart) {
+                assertThat(((TextPart) roundTrippedPart).getText())
+                        .isEqualTo(((TextPart) originalPart).getText());
+            }
+        }
+        
+        // Metadata comparison
+        assertThat(roundTripped.metadata()).hasSize(original.metadata().size());
+        assertThat(roundTripped.metadata().get("string")).isEqualTo("value");
+        assertThat(roundTripped.metadata().get("integer")).isEqualTo(123);
+        assertThat(roundTripped.metadata().get("double")).isEqualTo(45.67);
+        assertThat(roundTripped.metadata().get("boolean")).isEqualTo(true);
+        
+        // Extensions comparison
+        assertThat(roundTripped.extensions()).containsExactlyElementsOf(original.extensions());
+    }
+
+    @Test
+    void updateArtifactsReplacesPreviousOnes() {
+        String conversationId = "conv-artifact-update";
+        
+        // First save with initial artifacts
+        Task initialTask = new Task.Builder()
+                .id(conversationId)
+                .contextId(conversationId)
+                .status(new TaskStatus(TaskState.WORKING))
+                .history(List.of(createMessage(io.a2a.spec.Message.Role.USER, "test")))
+                .artifacts(List.of(
+                        new Artifact.Builder()
+                                .artifactId("art-initial")
+                                .name("Initial Artifact")
+                                .parts(new TextPart("Initial content"))
+                                .build()
+                ))
+                .build();
+
+        taskStore.save(initialTask);
+        
+        // Update with different artifacts
+        Task updatedTask = new Task.Builder()
+                .id(conversationId)
+                .contextId(conversationId)
+                .status(new TaskStatus(TaskState.COMPLETED))
+                .history(List.of(createMessage(io.a2a.spec.Message.Role.USER, "test")))
+                .artifacts(List.of(
+                        new Artifact.Builder()
+                                .artifactId("art-updated")
+                                .name("Updated Artifact")
+                                .parts(new TextPart("Updated content"))
+                                .build()
+                ))
+                .build();
+
+        taskStore.save(updatedTask);
+        Task retrieved = taskStore.get(conversationId);
+
+        // Should have only the updated artifact
+        assertThat(retrieved.getArtifacts()).hasSize(1);
+        assertThat(retrieved.getArtifacts().get(0).artifactId()).isEqualTo("art-updated");
+        assertThat(retrieved.getArtifacts().get(0).name()).isEqualTo("Updated Artifact");
     }
 
     private Task createSampleTask(String conversationId) {

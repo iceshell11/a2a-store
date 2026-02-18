@@ -3,7 +3,7 @@
 CREATE TABLE IF NOT EXISTS a2a_conversations (
     conversation_id VARCHAR(255) PRIMARY KEY,
     status_state VARCHAR(50) NOT NULL DEFAULT 'submitted',
-    status_message JSON,
+    status_message_json JSON,
     status_timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     metadata_json JSON,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -17,28 +17,35 @@ CREATE TABLE IF NOT EXISTS a2a_conversations (
 );
 
 CREATE TABLE IF NOT EXISTS a2a_messages (
-    message_id SERIAL PRIMARY KEY,
+    message_id VARCHAR(255) NOT NULL,
     conversation_id VARCHAR(255) NOT NULL REFERENCES a2a_conversations(conversation_id) ON DELETE CASCADE,
     role VARCHAR(20) NOT NULL,
     content_json JSON NOT NULL,  -- Array of Part objects
     metadata_json JSON,          -- Message metadata JSON object
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     sequence_num INTEGER NOT NULL,
 
+    PRIMARY KEY (message_id, conversation_id),
     CONSTRAINT chk_role CHECK (role IN ('USER', 'AGENT'))
 );
 
-ALTER TABLE a2a_messages
-    ADD COLUMN IF NOT EXISTS metadata_json JSON;
-
 CREATE TABLE IF NOT EXISTS a2a_artifacts (
-    artifact_id SERIAL PRIMARY KEY,
+    artifact_id VARCHAR(255) NOT NULL,
     conversation_id VARCHAR(255) NOT NULL REFERENCES a2a_conversations(conversation_id) ON DELETE CASCADE,
-    artifact_json JSON NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    name VARCHAR(500),
+    description TEXT,
+    content_json JSON NOT NULL,
+    metadata_json JSON,
+    extensions_json JSON,
+    sequence_num INTEGER NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    
+    PRIMARY KEY (artifact_id, conversation_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_conversations_status ON a2a_conversations(status_state);
 CREATE INDEX IF NOT EXISTS idx_conversations_finalized ON a2a_conversations(finalized_at);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON a2a_messages(conversation_id, sequence_num);
-CREATE INDEX IF NOT EXISTS idx_artifacts_conversation ON a2a_artifacts(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_artifacts_conversation ON a2a_artifacts(conversation_id, sequence_num);
