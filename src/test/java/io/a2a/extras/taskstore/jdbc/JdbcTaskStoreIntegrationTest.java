@@ -39,7 +39,6 @@ class JdbcTaskStoreIntegrationTest {
         taskStore = new JdbcTaskStore(jdbcTemplate, properties);
 
         // Clean up tables before each test
-        jdbcTemplate.execute("DELETE FROM a2a_metadata");
         jdbcTemplate.execute("DELETE FROM a2a_artifacts");
         jdbcTemplate.execute("DELETE FROM a2a_messages");
         jdbcTemplate.execute("DELETE FROM a2a_conversations");

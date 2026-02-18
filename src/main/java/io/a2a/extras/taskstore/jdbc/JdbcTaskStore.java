@@ -21,15 +21,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
-import java.util.AbstractMap;
 import java.util.EnumSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
-import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 public class JdbcTaskStore implements TaskStore, TaskStateProvider {
@@ -184,34 +181,12 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
     }
 
     private void saveMetadata(String conversationId, Map<String, Object> metadata) {
-        if (metadata.isEmpty()) {
-            jdbcTemplate.update("DELETE FROM a2a_metadata WHERE conversation_id = ?", conversationId);
-            return;
-        }
-
-        String mergeSql = """
-            MERGE INTO a2a_metadata (conversation_id, "key", value_json, updated_at)
-            KEY (conversation_id, "key")
-            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-            """;
-
-        List<Map.Entry<String, Object>> entries = metadata.entrySet().stream().toList();
-        batchInsert(mergeSql, entries, (entry, idx) -> new Object[]{
-            conversationId, entry.getKey(), JsonUtils.toJson(entry.getValue())
-        });
-
-        Set<String> keysToKeep = metadata.keySet();
-        if (!keysToKeep.isEmpty()) {
-            String placeholders = keysToKeep.stream().map(k -> "?").collect(Collectors.joining(", "));
-            String deleteSql = "DELETE FROM a2a_metadata WHERE conversation_id = ? AND \"key\" NOT IN (" + placeholders + ")";
-            Object[] params = new Object[keysToKeep.size() + 1];
-            params[0] = conversationId;
-            int i = 1;
-            for (String key : keysToKeep) {
-                params[i++] = key;
-            }
-            jdbcTemplate.update(deleteSql, params);
-        }
+        String metadataJson = metadata.isEmpty() ? null : JsonUtils.toJson(metadata);
+        jdbcTemplate.update(
+            "UPDATE a2a_conversations SET metadata_json = ? WHERE conversation_id = ?",
+            metadataJson,
+            conversationId
+        );
     }
 
     @Override
@@ -225,7 +200,7 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
                 .status(buildTaskStatus(conversation))
                 .history(loadMessages(taskId))
                 .artifacts(properties.isStoreArtifacts() ? loadArtifacts(taskId) : List.of())
-                .metadata(properties.isStoreMetadata() ? loadMetadata(taskId) : Map.of())
+                .metadata(properties.isStoreMetadata() ? loadMetadata(conversation) : Map.of())
                 .build())
             .orElse(null);
     }
@@ -260,18 +235,9 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
             conversationId);
     }
 
-    private Map<String, Object> loadMetadata(String conversationId) {
-        String sql = "SELECT \"key\", value_json FROM a2a_metadata WHERE conversation_id = ?";
-        return jdbcTemplate.query(
-            sql,
-            (rs, rowNum) -> new AbstractMap.SimpleEntry<>(
-                rs.getString("key"),
-                JsonUtils.fromJson(rs.getString("value_json"), JsonUtils.OBJECT_TYPE).orElse(null)
-            ),
-            conversationId
-        ).stream()
-            .filter(e -> e.getValue() != null)
-            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1, LinkedHashMap::new));
+    private Map<String, Object> loadMetadata(ConversationRow conversation) {
+        return JsonUtils.fromJson(conversation.metadataJson(), JsonUtils.METADATA_MAP_TYPE)
+            .orElse(Map.of());
     }
 
     private TaskStatus buildTaskStatus(ConversationRow conversation) {
@@ -318,7 +284,8 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
         String statusState,
         String statusMessage,
         OffsetDateTime statusTimestamp,
-        OffsetDateTime finalizedAt
+        OffsetDateTime finalizedAt,
+        String metadataJson
     ) {}
 
     private static class ConversationRowMapper implements RowMapper<ConversationRow> {
@@ -329,7 +296,8 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
                 rs.getString("status_state"),
                 rs.getString("status_message"),
                 rs.getObject("status_timestamp", OffsetDateTime.class),
-                rs.getObject("finalized_at", OffsetDateTime.class)
+                rs.getObject("finalized_at", OffsetDateTime.class),
+                rs.getString("metadata_json")
             );
         }
     }
