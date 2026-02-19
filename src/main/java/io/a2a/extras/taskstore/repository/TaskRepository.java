@@ -2,6 +2,7 @@ package io.a2a.extras.taskstore.repository;
 
 import io.a2a.extras.taskstore.jdbc.JsonUtils;
 import io.a2a.extras.taskstore.jdbc.JsonbAdapter;
+import io.a2a.extras.taskstore.jdbc.SqlConstants;
 import io.a2a.spec.Task;
 import io.a2a.spec.TaskState;
 import io.a2a.spec.TaskStatus;
@@ -24,31 +25,6 @@ public class TaskRepository {
             TaskState.COMPLETED, TaskState.CANCELED, TaskState.FAILED, TaskState.REJECTED
     );
 
-    private static final String UPDATE_TASK_SQL = """
-            UPDATE a2a_tasks
-            SET context_id = ?, status_state = ?, status_message_json = ?, status_timestamp = ?, finalized_at = ?
-            WHERE task_id = ?
-            """;
-
-    private static final String INSERT_TASK_SQL = """
-            INSERT INTO a2a_tasks
-            (task_id, context_id, status_state, status_message_json, status_timestamp, finalized_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """;
-
-    private static final String SELECT_TASK_BY_ID = "SELECT * FROM a2a_tasks WHERE task_id = ?";
-
-    private static final String UPDATE_METADATA_SQL =
-            "UPDATE a2a_tasks SET metadata_json = ? WHERE task_id = ?";
-
-    private static final String DELETE_TASK_SQL = "DELETE FROM a2a_tasks WHERE task_id = ?";
-
-    private static final String SELECT_STATUS_STATE =
-            "SELECT status_state FROM a2a_tasks WHERE task_id = ?";
-
-    private static final String SELECT_FINALIZED_AT =
-            "SELECT finalized_at FROM a2a_tasks WHERE task_id = ?";
-
     private final JdbcTemplate jdbcTemplate;
     private final JsonbAdapter jsonbAdapter;
 
@@ -67,7 +43,7 @@ public class TaskRepository {
         OffsetDateTime finalizedAt = FINAL_STATES.contains(status.state()) ? OffsetDateTime.now() : null;
 
         int updatedRows = jdbcTemplate.update(
-                UPDATE_TASK_SQL,
+                SqlConstants.UPDATE_TASK,
                 contextId,
                 statusState,
                 jsonbAdapter.adapt(statusMessage),
@@ -82,7 +58,7 @@ public class TaskRepository {
 
         try {
             jdbcTemplate.update(
-                    INSERT_TASK_SQL,
+                    SqlConstants.INSERT_TASK,
                     taskId,
                     contextId,
                     statusState,
@@ -92,7 +68,7 @@ public class TaskRepository {
             );
         } catch (DuplicateKeyException ignored) {
             jdbcTemplate.update(
-                    UPDATE_TASK_SQL,
+                    SqlConstants.UPDATE_TASK,
                     contextId,
                     statusState,
                     jsonbAdapter.adapt(statusMessage),
@@ -106,7 +82,7 @@ public class TaskRepository {
     public Optional<TaskRow> findById(String taskId) {
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(
-                    SELECT_TASK_BY_ID,
+                    SqlConstants.SELECT_TASK_BY_ID,
                     new TaskRowMapper(),
                     taskId
             ));
@@ -117,21 +93,21 @@ public class TaskRepository {
 
     public void updateMetadata(String taskId, Map<String, Object> metadata) {
         String metadataJson = metadata.isEmpty() ? null : JsonUtils.toJson(metadata);
-        jdbcTemplate.update(UPDATE_METADATA_SQL, jsonbAdapter.adapt(metadataJson), taskId);
+        jdbcTemplate.update(SqlConstants.UPDATE_TASK_METADATA, jsonbAdapter.adapt(metadataJson), taskId);
     }
 
     public void delete(String taskId) {
-        jdbcTemplate.update(DELETE_TASK_SQL, taskId);
+        jdbcTemplate.update(SqlConstants.DELETE_TASK, taskId);
     }
 
     public boolean isTaskActive(String taskId) {
-        return queryForOptional(SELECT_STATUS_STATE, String.class, taskId)
+        return queryForOptional(SqlConstants.SELECT_STATUS_STATE, String.class, taskId)
                 .map(status -> !FINAL_STATES.contains(TaskState.fromString(status)))
                 .orElse(false);
     }
 
     public boolean isTaskFinalized(String taskId) {
-        return queryForOptional(SELECT_FINALIZED_AT, OffsetDateTime.class, taskId).isPresent();
+        return queryForOptional(SqlConstants.SELECT_FINALIZED_AT, OffsetDateTime.class, taskId).isPresent();
     }
 
     private <T> Optional<T> queryForOptional(String sql, Class<T> requiredType, Object... args) {
@@ -170,13 +146,13 @@ public class TaskRepository {
         @Override
         public TaskRow mapRow(ResultSet rs, int rowNum) throws SQLException {
             return new TaskRow(
-                    rs.getString("task_id"),
-                    rs.getString("context_id"),
-                    rs.getString("status_state"),
-                    rs.getString("status_message_json"),
-                    rs.getObject("status_timestamp", OffsetDateTime.class),
-                    rs.getObject("finalized_at", OffsetDateTime.class),
-                    rs.getString("metadata_json")
+                    rs.getString(SqlConstants.COL_TASK_ID),
+                    rs.getString(SqlConstants.COL_CONTEXT_ID),
+                    rs.getString(SqlConstants.COL_STATUS_STATE),
+                    rs.getString(SqlConstants.COL_STATUS_MESSAGE_JSON),
+                    rs.getObject(SqlConstants.COL_STATUS_TIMESTAMP, OffsetDateTime.class),
+                    rs.getObject(SqlConstants.COL_FINALIZED_AT, OffsetDateTime.class),
+                    rs.getString(SqlConstants.COL_METADATA_JSON)
             );
         }
     }

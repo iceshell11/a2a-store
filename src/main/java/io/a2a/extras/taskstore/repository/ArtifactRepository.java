@@ -3,6 +3,7 @@ package io.a2a.extras.taskstore.repository;
 import io.a2a.extras.taskstore.A2aTaskStoreProperties;
 import io.a2a.extras.taskstore.jdbc.JsonUtils;
 import io.a2a.extras.taskstore.jdbc.JsonbAdapter;
+import io.a2a.extras.taskstore.jdbc.SqlConstants;
 import io.a2a.spec.Artifact;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -16,21 +17,6 @@ import java.util.stream.IntStream;
 
 public class ArtifactRepository {
 
-    private static final String DELETE_ARTIFACTS_SQL = "DELETE FROM a2a_artifacts WHERE task_id = ?";
-
-    private static final String INSERT_ARTIFACT_SQL = """
-            INSERT INTO a2a_artifacts
-            (task_id, artifact_id, name, description, content_json, metadata_json, extensions_json, sequence_num)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """;
-
-    private static final String SELECT_ARTIFACTS_SQL = """
-            SELECT task_id, artifact_id, name, description, content_json, metadata_json, extensions_json
-            FROM a2a_artifacts
-            WHERE task_id = ?
-            ORDER BY sequence_num
-            """;
-
     private final JdbcTemplate jdbcTemplate;
     private final JsonbAdapter jsonbAdapter;
     private final int batchSize;
@@ -42,7 +28,7 @@ public class ArtifactRepository {
     }
 
     public void saveAll(String taskId, List<Artifact> artifacts) {
-        jdbcTemplate.update(DELETE_ARTIFACTS_SQL, taskId);
+        jdbcTemplate.update(SqlConstants.DELETE_ARTIFACTS, taskId);
         if (artifacts.isEmpty()) {
             return;
         }
@@ -65,12 +51,12 @@ public class ArtifactRepository {
             List<Object[]> batchArgs = IntStream.range(start, end)
                     .mapToObj(index -> mapper.apply(items.get(index), index))
                     .toList();
-            jdbcTemplate.batchUpdate(INSERT_ARTIFACT_SQL, batchArgs);
+            jdbcTemplate.batchUpdate(SqlConstants.INSERT_ARTIFACT, batchArgs);
         }
     }
 
     public List<Artifact> findByTaskId(String taskId) {
-        return jdbcTemplate.query(SELECT_ARTIFACTS_SQL, new ArtifactRowMapper(), taskId);
+        return jdbcTemplate.query(SqlConstants.SELECT_ARTIFACTS, new ArtifactRowMapper(), taskId);
     }
 
     private static class ArtifactRowMapper implements RowMapper<Artifact> {
@@ -78,19 +64,19 @@ public class ArtifactRepository {
         public Artifact mapRow(ResultSet rs, int rowNum) throws SQLException {
             try {
                 return new Artifact.Builder()
-                        .artifactId(rs.getString("artifact_id"))
-                        .name(rs.getString("name"))
-                        .description(rs.getString("description"))
+                        .artifactId(rs.getString(SqlConstants.COL_ARTIFACT_ID))
+                        .name(rs.getString(SqlConstants.COL_NAME))
+                        .description(rs.getString(SqlConstants.COL_DESCRIPTION))
                         .parts(
-                                JsonUtils.fromJson(rs.getString("content_json"), JsonUtils.PARTS_TYPE)
+                                JsonUtils.fromJson(rs.getString(SqlConstants.COL_CONTENT_JSON), JsonUtils.PARTS_TYPE)
                                         .orElseThrow(() -> new SQLException("Artifact content_json is null"))
                         )
                         .metadata(
-                                JsonUtils.fromJson(rs.getString("metadata_json"), JsonUtils.METADATA_MAP_TYPE)
+                                JsonUtils.fromJson(rs.getString(SqlConstants.COL_METADATA_JSON), JsonUtils.METADATA_MAP_TYPE)
                                         .orElse(Map.of())
                         )
                         .extensions(
-                                JsonUtils.fromJson(rs.getString("extensions_json"), JsonUtils.EXTENSIONS_TYPE)
+                                JsonUtils.fromJson(rs.getString(SqlConstants.COL_EXTENSIONS_JSON), JsonUtils.EXTENSIONS_TYPE)
                                         .orElse(List.of())
                         )
                         .build();

@@ -3,6 +3,7 @@ package io.a2a.extras.taskstore.repository;
 import io.a2a.extras.taskstore.A2aTaskStoreProperties;
 import io.a2a.extras.taskstore.jdbc.JsonUtils;
 import io.a2a.extras.taskstore.jdbc.JsonbAdapter;
+import io.a2a.extras.taskstore.jdbc.SqlConstants;
 import io.a2a.spec.Message;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -17,22 +18,6 @@ import java.util.stream.IntStream;
 
 public class HistoryRepository {
 
-    private static final String DELETE_HISTORY_SQL = "DELETE FROM a2a_history WHERE task_id = ?";
-
-    private static final String COUNT_HISTORY_SQL = "SELECT COUNT(*) FROM a2a_history WHERE task_id = ?";
-
-    private static final String INSERT_HISTORY_SQL = """
-            INSERT INTO a2a_history (task_id, message_id, role, content_json, metadata_json, sequence_num)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """;
-
-    private static final String SELECT_HISTORY_SQL = """
-            SELECT task_id, message_id, role, content_json, metadata_json
-            FROM a2a_history
-            WHERE task_id = ?
-            ORDER BY sequence_num
-            """;
-
     private final JdbcTemplate jdbcTemplate;
     private final JsonbAdapter jsonbAdapter;
     private final int batchSize;
@@ -45,11 +30,11 @@ public class HistoryRepository {
 
     public void saveAll(String taskId, List<Message> messages) {
         if (messages.isEmpty()) {
-            jdbcTemplate.update(DELETE_HISTORY_SQL, taskId);
+            jdbcTemplate.update(SqlConstants.DELETE_HISTORY, taskId);
             return;
         }
 
-        int existingCount = jdbcTemplate.queryForObject(COUNT_HISTORY_SQL, Integer.class, taskId);
+        int existingCount = jdbcTemplate.queryForObject(SqlConstants.COUNT_HISTORY, Integer.class, taskId);
 
         if (existingCount == 0) {
             insertAll(taskId, messages);
@@ -88,12 +73,12 @@ public class HistoryRepository {
             List<Object[]> batchArgs = IntStream.range(start, end)
                     .mapToObj(index -> mapper.apply(items.get(index), index))
                     .toList();
-            jdbcTemplate.batchUpdate(INSERT_HISTORY_SQL, batchArgs);
+            jdbcTemplate.batchUpdate(SqlConstants.INSERT_HISTORY, batchArgs);
         }
     }
 
     public List<Message> findByTaskId(String taskId) {
-        return jdbcTemplate.query(SELECT_HISTORY_SQL, new HistoryRowMapper(taskId), taskId);
+        return jdbcTemplate.query(SqlConstants.SELECT_HISTORY, new HistoryRowMapper(taskId), taskId);
     }
 
     private static class HistoryRowMapper implements RowMapper<Message> {
@@ -107,16 +92,16 @@ public class HistoryRepository {
         public Message mapRow(ResultSet rs, int rowNum) throws SQLException {
             try {
                 return new Message.Builder()
-                        .messageId(rs.getString("message_id"))
+                        .messageId(rs.getString(SqlConstants.COL_MESSAGE_ID))
                         .contextId(taskId)
                         .taskId(taskId)
-                        .role(Message.Role.valueOf(rs.getString("role")))
+                        .role(Message.Role.valueOf(rs.getString(SqlConstants.COL_ROLE)))
                         .parts(
-                                JsonUtils.fromJson(rs.getString("content_json"), JsonUtils.PARTS_TYPE)
+                                JsonUtils.fromJson(rs.getString(SqlConstants.COL_CONTENT_JSON), JsonUtils.PARTS_TYPE)
                                         .orElseThrow(() -> new SQLException("History content_json is null"))
                         )
                         .metadata(
-                                JsonUtils.fromJson(rs.getString("metadata_json"), JsonUtils.METADATA_MAP_TYPE)
+                                JsonUtils.fromJson(rs.getString(SqlConstants.COL_METADATA_JSON), JsonUtils.METADATA_MAP_TYPE)
                                         .orElse(Map.of())
                         )
                         .build();
