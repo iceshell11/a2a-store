@@ -1,1 +1,1 @@
-io.a2a.extras.taskstore.autoconfigure.A2aTaskStoreAutoConfiguration
+io.a2a.extras.taskstore.jdbc.config.TaskStoreAutoConfiguration
