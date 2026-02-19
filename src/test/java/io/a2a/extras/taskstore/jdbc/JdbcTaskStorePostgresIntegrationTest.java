@@ -42,8 +42,8 @@ class JdbcTaskStorePostgresIntegrationTest {
         // Clean up test data
         if (jdbcTemplate != null) {
             jdbcTemplate.execute("DROP TABLE IF EXISTS a2a_artifacts");
-            jdbcTemplate.execute("DROP TABLE IF EXISTS a2a_messages");
-            jdbcTemplate.execute("DROP TABLE IF EXISTS a2a_conversations");
+            jdbcTemplate.execute("DROP TABLE IF EXISTS a2a_history");
+            jdbcTemplate.execute("DROP TABLE IF EXISTS a2a_tasks");
         }
     }
 
@@ -59,8 +59,9 @@ class JdbcTaskStorePostgresIntegrationTest {
     private void initializeSchema() {
         // Create schema using the same SQL as production
         jdbcTemplate.execute("""
-            CREATE TABLE IF NOT EXISTS a2a_conversations (
-                conversation_id VARCHAR(255) PRIMARY KEY,
+            CREATE TABLE IF NOT EXISTS a2a_tasks (
+                task_id VARCHAR(255) PRIMARY KEY,
+                context_id VARCHAR(255),
                 status_state VARCHAR(50) NOT NULL DEFAULT 'submitted',
                 status_message_json JSONB,
                 status_timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -72,9 +73,9 @@ class JdbcTaskStorePostgresIntegrationTest {
             """);
 
         jdbcTemplate.execute("""
-            CREATE TABLE IF NOT EXISTS a2a_messages (
+            CREATE TABLE IF NOT EXISTS a2a_history (
+                task_id VARCHAR(255) NOT NULL REFERENCES a2a_tasks(task_id) ON DELETE CASCADE,
                 message_id VARCHAR(255) NOT NULL,
-                conversation_id VARCHAR(255) NOT NULL REFERENCES a2a_conversations(conversation_id) ON DELETE CASCADE,
                 role VARCHAR(20) NOT NULL,
                 content_json JSONB NOT NULL,
                 metadata_json JSONB,
@@ -82,14 +83,14 @@ class JdbcTaskStorePostgresIntegrationTest {
                 updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                 sequence_num INTEGER NOT NULL,
                 
-                PRIMARY KEY (message_id, conversation_id)
+                PRIMARY KEY (message_id, task_id)
             )
             """);
 
         jdbcTemplate.execute("""
             CREATE TABLE IF NOT EXISTS a2a_artifacts (
                 artifact_id VARCHAR(255) NOT NULL,
-                conversation_id VARCHAR(255) NOT NULL REFERENCES a2a_conversations(conversation_id) ON DELETE CASCADE,
+                task_id VARCHAR(255) NOT NULL REFERENCES a2a_tasks(task_id) ON DELETE CASCADE,
                 name VARCHAR(500),
                 description TEXT,
                 content_json JSONB NOT NULL,
@@ -99,14 +100,14 @@ class JdbcTaskStorePostgresIntegrationTest {
                 created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                 
-                PRIMARY KEY (artifact_id, conversation_id)
+                PRIMARY KEY (artifact_id, task_id)
             )
             """);
     }
 
     @Test
     void saveAndGetTaskWithJsonbColumns() {
-        String taskId = "conv-postgres-123";
+        String taskId = "task-postgres-123";
         
         io.a2a.spec.Message message = new io.a2a.spec.Message.Builder()
                 .role(io.a2a.spec.Message.Role.USER)
@@ -151,7 +152,7 @@ class JdbcTaskStorePostgresIntegrationTest {
 
     @Test
     void saveTaskWithComplexJsonbData() {
-        String taskId = "conv-complex-jsonb";
+        String taskId = "task-complex-jsonb";
         
         // Create message with nested metadata
         io.a2a.spec.Message message = new io.a2a.spec.Message.Builder()
@@ -193,7 +194,7 @@ class JdbcTaskStorePostgresIntegrationTest {
         properties.setBatchSize(2); // Force multiple batches
         taskStore = new JdbcTaskStore(jdbcTemplate, properties);
 
-        String taskId = "conv-batch-jsonb";
+        String taskId = "task-batch-jsonb";
         
         List<io.a2a.spec.Message> messages = List.of(
                 createMessage(io.a2a.spec.Message.Role.USER, "Message 1"),

@@ -25,15 +25,15 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
 	private static final Set<TaskState> FINAL_STATES = EnumSet.of(
 		TaskState.COMPLETED, TaskState.CANCELED, TaskState.FAILED, TaskState.REJECTED
 	);
-	private static final String UPDATE_CONVERSATION_SQL = """
-		UPDATE a2a_conversations
-		SET status_state = ?, status_message_json = ?, status_timestamp = ?, finalized_at = ?
-		WHERE conversation_id = ?
+	private static final String UPDATE_TASK_SQL = """
+		UPDATE a2a_tasks
+		SET context_id = ?, status_state = ?, status_message_json = ?, status_timestamp = ?, finalized_at = ?
+		WHERE task_id = ?
 		""";
-	private static final String INSERT_CONVERSATION_SQL = """
-		INSERT INTO a2a_conversations
-		(conversation_id, status_state, status_message_json, status_timestamp, finalized_at)
-		VALUES (?, ?, ?, ?, ?)
+	private static final String INSERT_TASK_SQL = """
+		INSERT INTO a2a_tasks
+		(task_id, context_id, status_state, status_message_json, status_timestamp, finalized_at)
+		VALUES (?, ?, ?, ?, ?, ?)
 		""";
 
 	private final JdbcTemplate jdbcTemplate;
@@ -60,8 +60,8 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
 	@CacheEvict(value = CacheConfig.TASK_CACHE, key = "#task.id")
 	public void save(Task task) {
 		String taskId = task.getId();
-		saveConversation(taskId, task);
-		saveMessages(taskId, task.getHistory());
+		saveTask(taskId, task);
+		saveHistory(taskId, task.getHistory());
 
 		if (properties.isStoreArtifacts()) {
 			saveArtifacts(taskId, task.getArtifacts());
@@ -71,7 +71,8 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
 		}
 	}
 
-	private void saveConversation(String taskId, Task task) {
+	private void saveTask(String taskId, Task task) {
+		String contextId = task.getContextId();
 		TaskStatus status = task.getStatus();
 		String statusState = status.state().asString();
 		String statusMessage = status.message() == null ? null : JsonUtils.toJson(status.message());
@@ -79,7 +80,8 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
 		OffsetDateTime finalizedAt = FINAL_STATES.contains(status.state()) ? OffsetDateTime.now() : null;
 
 		int updatedRows = jdbcTemplate.update(
-			UPDATE_CONVERSATION_SQL,
+			UPDATE_TASK_SQL,
+			contextId,
 			statusState,
 			jsonbAdapter.adapt(statusMessage),
 			statusTimestamp,
@@ -93,8 +95,9 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
 
 		try {
 			jdbcTemplate.update(
-				INSERT_CONVERSATION_SQL,
+				INSERT_TASK_SQL,
 				taskId,
+				contextId,
 				statusState,
 				jsonbAdapter.adapt(statusMessage),
 				statusTimestamp,
@@ -102,7 +105,8 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
 			);
 		} catch (DuplicateKeyException ignored) {
 			jdbcTemplate.update(
-				UPDATE_CONVERSATION_SQL,
+				UPDATE_TASK_SQL,
+				contextId,
 				statusState,
 				jsonbAdapter.adapt(statusMessage),
 				statusTimestamp,
@@ -112,49 +116,49 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
 		}
 	}
 
-	private void saveMessages(String taskId, List<Message> messages) {
+	private void saveHistory(String taskId, List<Message> messages) {
 		if (messages.isEmpty()) {
-			jdbcTemplate.update("DELETE FROM a2a_messages WHERE conversation_id = ?", taskId);
+			jdbcTemplate.update("DELETE FROM a2a_history WHERE task_id = ?", taskId);
 			return;
 		}
 		int existingCount = jdbcTemplate.queryForObject(
-			"SELECT COUNT(*) FROM a2a_messages WHERE conversation_id = ?",
+			"SELECT COUNT(*) FROM a2a_history WHERE task_id = ?",
 			Integer.class,
 			taskId
 		);
 
 		if (existingCount == 0) {
-			insertAllMessages(taskId, messages);
+			insertAllHistory(taskId, messages);
 		} else if (messages.size() > existingCount) {
 			List<Message> newMessages = messages.subList(existingCount, messages.size());
-			insertMessagesStartingFromSequence(taskId, newMessages, existingCount);
+			insertHistoryStartingFromSequence(taskId, newMessages, existingCount);
 		}
 	}
 
-	private void insertAllMessages(String taskId, List<Message> messages) {
+	private void insertAllHistory(String taskId, List<Message> messages) {
 		String sql = """
-			INSERT INTO a2a_messages (message_id, conversation_id, role, content_json, metadata_json, sequence_num)
+			INSERT INTO a2a_history (task_id, message_id, role, content_json, metadata_json, sequence_num)
 			VALUES (?, ?, ?, ?, ?, ?)
 			""";
-		batchInsert(sql, messages, (msg, index) -> messageToObject(taskId, msg, index));
+		batchInsert(sql, messages, (msg, index) -> historyToObject(taskId, msg, index));
 	}
 
 	private String generateMessageId(String taskId, int index) {
 		return taskId + "-msg-" + index;
 	}
 
-	private void insertMessagesStartingFromSequence(String taskId, List<Message> messages, int startSequence) {
+	private void insertHistoryStartingFromSequence(String taskId, List<Message> messages, int startSequence) {
 		String sql = """
-			INSERT INTO a2a_messages (message_id, conversation_id, role, content_json, metadata_json, sequence_num)
+			INSERT INTO a2a_history (task_id, message_id, role, content_json, metadata_json, sequence_num)
 			VALUES (?, ?, ?, ?, ?, ?)
 			""";
-		batchInsert(sql, messages, (msg, index) -> messageToObject(taskId, msg, startSequence + index));
+		batchInsert(sql, messages, (msg, index) -> historyToObject(taskId, msg, startSequence + index));
 	}
 
-	private Object[] messageToObject(String taskId, Message msg, Integer index) {
+	private Object[] historyToObject(String taskId, Message msg, Integer index) {
 		return new Object[]{
-			Optional.ofNullable(msg.getMessageId()).orElseGet(() -> generateMessageId(taskId, index)),
 			taskId,
+			Optional.ofNullable(msg.getMessageId()).orElseGet(() -> generateMessageId(taskId, index)),
 			msg.getRole().name(),
 			jsonbAdapter.adapt(JsonUtils.toJson(msg.getParts())),
 			jsonbAdapter.adapt(JsonUtils.toJson(msg.getMetadata())),
@@ -174,19 +178,19 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
 	}
 
 	private void saveArtifacts(String taskId, List<Artifact> artifacts) {
-		jdbcTemplate.update("DELETE FROM a2a_artifacts WHERE conversation_id = ?", taskId);
+		jdbcTemplate.update("DELETE FROM a2a_artifacts WHERE task_id = ?", taskId);
 		if (artifacts.isEmpty()) {
 			return;
 		}
 
 		String sql = """
 			INSERT INTO a2a_artifacts
-			(artifact_id, conversation_id, name, description, content_json, metadata_json, extensions_json, sequence_num)
+			(task_id, artifact_id, name, description, content_json, metadata_json, extensions_json, sequence_num)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 			""";
 		batchInsert(sql, artifacts, (artifact, idx) -> new Object[]{
-			artifact.artifactId(),
 			taskId,
+			artifact.artifactId(),
 			artifact.name(),
 			artifact.description(),
 			jsonbAdapter.adapt(JsonUtils.toJson(artifact.parts())),
@@ -199,7 +203,7 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
 	private void saveMetadata(String taskId, Map<String, Object> metadata) {
 		String metadataJson = metadata.isEmpty() ? null : JsonUtils.toJson(metadata);
 		jdbcTemplate.update(
-			"UPDATE a2a_conversations SET metadata_json = ? WHERE conversation_id = ?",
+			"UPDATE a2a_tasks SET metadata_json = ? WHERE task_id = ?",
 			jsonbAdapter.adapt(metadataJson),
 			taskId
 		);
@@ -209,23 +213,23 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
 	@Transactional(readOnly = true)
 	@Cacheable(value = CacheConfig.TASK_CACHE, key = "#taskId", unless = "#result == null")
 	public Task get(String taskId) {
-		return loadConversation(taskId)
-			.map(conversation -> new Task.Builder()
+		return loadTask(taskId)
+			.map(taskRow -> new Task.Builder()
 				.id(taskId)
-				.contextId(taskId)
-				.status(buildTaskStatus(conversation))
-				.history(loadMessages(taskId))
+				.contextId(taskRow.contextId() != null ? taskRow.contextId() : taskId)
+				.status(buildTaskStatus(taskRow))
+				.history(loadHistory(taskId))
 				.artifacts(properties.isStoreArtifacts() ? loadArtifacts(taskId) : List.of())
-				.metadata(properties.isStoreMetadata() ? loadMetadata(conversation) : Map.of())
+				.metadata(properties.isStoreMetadata() ? loadMetadata(taskRow) : Map.of())
 				.build())
 			.orElse(null);
 	}
 
-	private Optional<ConversationRow> loadConversation(String taskId) {
+	private Optional<TaskRow> loadTask(String taskId) {
 		try {
 			return Optional.ofNullable(jdbcTemplate.queryForObject(
-				"SELECT * FROM a2a_conversations WHERE conversation_id = ?",
-				new ConversationRowMapper(),
+				"SELECT * FROM a2a_tasks WHERE task_id = ?",
+				new TaskRowMapper(),
 				taskId
 			));
 		} catch (EmptyResultDataAccessException e) {
@@ -233,36 +237,36 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
 		}
 	}
 
-	private List<Message> loadMessages(String taskId) {
+	private List<Message> loadHistory(String taskId) {
 		String sql = """
-			SELECT message_id, conversation_id, role, content_json, metadata_json
-			FROM a2a_messages
-			WHERE conversation_id = ?
+			SELECT task_id, message_id, role, content_json, metadata_json
+			FROM a2a_history
+			WHERE task_id = ?
 			ORDER BY sequence_num
 			""";
-		return jdbcTemplate.query(sql, new MessageRowMapper(), taskId);
+		return jdbcTemplate.query(sql, new HistoryRowMapper(taskId), taskId);
 	}
 
 	private List<Artifact> loadArtifacts(String taskId) {
 		String sql = """
-			SELECT artifact_id, conversation_id, name, description, content_json, metadata_json, extensions_json
+			SELECT task_id, artifact_id, name, description, content_json, metadata_json, extensions_json
 			FROM a2a_artifacts
-			WHERE conversation_id = ?
+			WHERE task_id = ?
 			ORDER BY sequence_num
 			""";
 		return jdbcTemplate.query(sql, new ArtifactRowMapper(), taskId);
 	}
 
-	private Map<String, Object> loadMetadata(ConversationRow conversation) {
-		return JsonUtils.fromJson(conversation.metadataJson(), JsonUtils.METADATA_MAP_TYPE)
+	private Map<String, Object> loadMetadata(TaskRow taskRow) {
+		return JsonUtils.fromJson(taskRow.metadataJson(), JsonUtils.METADATA_MAP_TYPE)
 			.orElse(Map.of());
 	}
 
-	private TaskStatus buildTaskStatus(ConversationRow conversation) {
+	private TaskStatus buildTaskStatus(TaskRow taskRow) {
 		return new TaskStatus(
-			TaskState.fromString(conversation.statusState()),
-			JsonUtils.fromJson(conversation.statusMessageJson(), JsonUtils.MESSAGE_TYPE).orElse(null),
-			conversation.statusTimestamp()
+			TaskState.fromString(taskRow.statusState()),
+			JsonUtils.fromJson(taskRow.statusMessageJson(), JsonUtils.MESSAGE_TYPE).orElse(null),
+			taskRow.statusTimestamp()
 		);
 	}
 
@@ -270,13 +274,13 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
 	@Transactional
 	@CacheEvict(value = CacheConfig.TASK_CACHE, key = "#taskId")
 	public void delete(String taskId) {
-		jdbcTemplate.update("DELETE FROM a2a_conversations WHERE conversation_id = ?", taskId);
+		jdbcTemplate.update("DELETE FROM a2a_tasks WHERE task_id = ?", taskId);
 	}
 
 	@Override
 	@Transactional(readOnly = true)
 	public boolean isTaskActive(String taskId) {
-		String sql = "SELECT status_state FROM a2a_conversations WHERE conversation_id = ?";
+		String sql = "SELECT status_state FROM a2a_tasks WHERE task_id = ?";
 		return queryForOptional(sql, String.class, taskId)
 			.map(status -> !FINAL_STATES.contains(TaskState.fromString(status)))
 			.orElse(false);
@@ -285,7 +289,7 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
 	@Override
 	@Transactional(readOnly = true)
 	public boolean isTaskFinalized(String taskId) {
-		String sql = "SELECT finalized_at FROM a2a_conversations WHERE conversation_id = ?";
+		String sql = "SELECT finalized_at FROM a2a_tasks WHERE task_id = ?";
 		return queryForOptional(sql, OffsetDateTime.class, taskId).isPresent();
 	}
 
@@ -297,8 +301,9 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
 		}
 	}
 
-	private record ConversationRow(
+	private record TaskRow(
 		String taskId,
+		String contextId,
 		String statusState,
 		String statusMessageJson,
 		OffsetDateTime statusTimestamp,
@@ -307,11 +312,12 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
 	) {
 	}
 
-	private static class ConversationRowMapper implements RowMapper<ConversationRow> {
+	private static class TaskRowMapper implements RowMapper<TaskRow> {
 		@Override
-		public ConversationRow mapRow(ResultSet rs, int rowNum) throws SQLException {
-			return new ConversationRow(
-				rs.getString("conversation_id"),
+		public TaskRow mapRow(ResultSet rs, int rowNum) throws SQLException {
+			return new TaskRow(
+				rs.getString("task_id"),
+				rs.getString("context_id"),
 				rs.getString("status_state"),
 				rs.getString("status_message_json"),
 				rs.getObject("status_timestamp", OffsetDateTime.class),
@@ -321,18 +327,24 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
 		}
 	}
 
-	private class MessageRowMapper implements RowMapper<Message> {
+	private class HistoryRowMapper implements RowMapper<Message> {
+		private final String taskId;
+
+		HistoryRowMapper(String taskId) {
+			this.taskId = taskId;
+		}
+
 		@Override
 		public Message mapRow(ResultSet rs, int rowNum) throws SQLException {
 			try {
 				return new Message.Builder()
 					.messageId(rs.getString("message_id"))
-					.contextId(rs.getString("conversation_id"))
-					.taskId(rs.getString("conversation_id"))
+					.contextId(taskId)
+					.taskId(taskId)
 					.role(Message.Role.valueOf(rs.getString("role")))
 					.parts(
 						JsonUtils.fromJson(rs.getString("content_json"), JsonUtils.PARTS_TYPE)
-							.orElseThrow(() -> new SQLException("Message content_json is null"))
+							.orElseThrow(() -> new SQLException("History content_json is null"))
 					)
 					.metadata(
 						JsonUtils.fromJson(rs.getString("metadata_json"), JsonUtils.METADATA_MAP_TYPE)
@@ -340,7 +352,7 @@ public class JdbcTaskStore implements TaskStore, TaskStateProvider {
 					)
 					.build();
 			} catch (RuntimeException e) {
-				throw new SQLException("Failed to deserialize message", e);
+				throw new SQLException("Failed to deserialize history entry", e);
 			}
 		}
 	}

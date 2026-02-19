@@ -40,8 +40,8 @@ class JdbcTaskStoreIntegrationTest {
 
         // Clean up tables before each test
         jdbcTemplate.execute("DELETE FROM a2a_artifacts");
-        jdbcTemplate.execute("DELETE FROM a2a_messages");
-        jdbcTemplate.execute("DELETE FROM a2a_conversations");
+        jdbcTemplate.execute("DELETE FROM a2a_history");
+        jdbcTemplate.execute("DELETE FROM a2a_tasks");
     }
 
     @Test
@@ -119,7 +119,7 @@ class JdbcTaskStoreIntegrationTest {
 
         Task retrieved = taskStore.get(taskId);
         String storedStatus = jdbcTemplate.queryForObject(
-                "SELECT status_state FROM a2a_conversations WHERE conversation_id = ?",
+                "SELECT status_state FROM a2a_tasks WHERE task_id = ?",
                 String.class,
                 taskId
         );
@@ -358,12 +358,12 @@ class JdbcTaskStoreIntegrationTest {
         taskStore.save(task);
 
         String storedContentJson = jdbcTemplate.queryForObject(
-                "SELECT content_json FROM a2a_messages WHERE conversation_id = ? ORDER BY sequence_num",
+                "SELECT content_json FROM a2a_history WHERE task_id = ? ORDER BY sequence_num",
                 String.class,
                 taskId
         );
         String storedMetadataJson = jdbcTemplate.queryForObject(
-                "SELECT metadata_json FROM a2a_messages WHERE conversation_id = ? ORDER BY sequence_num",
+                "SELECT metadata_json FROM a2a_history WHERE task_id = ? ORDER BY sequence_num",
                 String.class,
                 taskId
         );
@@ -402,7 +402,7 @@ class JdbcTaskStoreIntegrationTest {
         taskStore.save(task);
 
         String storedMetadataJson = jdbcTemplate.queryForObject(
-                "SELECT metadata_json FROM a2a_messages WHERE conversation_id = ? ORDER BY sequence_num",
+                "SELECT metadata_json FROM a2a_history WHERE task_id = ? ORDER BY sequence_num",
                 String.class,
                 taskId
         );
@@ -419,8 +419,8 @@ class JdbcTaskStoreIntegrationTest {
         String taskId = "conv-legacy-parts-json";
         jdbcTemplate.update(
                 """
-                INSERT INTO a2a_conversations
-                (conversation_id, status_state, status_message_json, status_timestamp, finalized_at)
+                INSERT INTO a2a_tasks
+                (task_id, status_state, status_message_json, status_timestamp, finalized_at)
                 VALUES (?, ?, CAST(? AS JSON), ?, ?)
                 """,
                 taskId,
@@ -433,11 +433,11 @@ class JdbcTaskStoreIntegrationTest {
         String legacyPartsJson = new ObjectMapper().writeValueAsString(List.of(new TextPart("legacy message")));
         jdbcTemplate.update(
                 """
-                INSERT INTO a2a_messages (message_id, conversation_id, role, content_json, sequence_num)
+                INSERT INTO a2a_history (task_id, message_id, role, content_json, sequence_num)
                 VALUES (?, ?, ?, CAST(? AS JSON), ?)
                 """,
-                taskId + "-msg-0",
                 taskId,
+                taskId + "-msg-0",
                 io.a2a.spec.Message.Role.USER.name(),
                 legacyPartsJson,
                 0
@@ -799,6 +799,431 @@ class JdbcTaskStoreIntegrationTest {
         assertThat(retrieved.getArtifacts()).hasSize(1);
         assertThat(retrieved.getArtifacts().get(0).artifactId()).isEqualTo("art-updated");
         assertThat(retrieved.getArtifacts().get(0).name()).isEqualTo("Updated Artifact");
+    }
+
+    @Test
+    void completeTaskRoundTripPreservesAllFields() {
+        String taskId = "task-complete-roundtrip";
+        String contextId = "ctx-789";
+        OffsetDateTime timestamp = OffsetDateTime.now();
+        
+        // Create message with status for TaskStatus
+        io.a2a.spec.Message statusMessage = new io.a2a.spec.Message.Builder()
+                .role(io.a2a.spec.Message.Role.AGENT)
+                .parts(new TextPart("Status message content"))
+                .contextId(contextId)
+                .build();
+        
+        TaskStatus status = new TaskStatus(TaskState.COMPLETED, statusMessage, timestamp);
+        
+        Task task = new Task.Builder()
+                .id(taskId)
+                .contextId(contextId)
+                .status(status)
+                .history(List.of(
+                        new io.a2a.spec.Message.Builder()
+                                .messageId("msg-001")
+                                .role(io.a2a.spec.Message.Role.USER)
+                                .parts(new TextPart("User message"))
+                                .contextId(contextId)
+                                .taskId(taskId)
+                                .metadata(Map.of("userMeta", "value1"))
+                                .build(),
+                        new io.a2a.spec.Message.Builder()
+                                .messageId("msg-002")
+                                .role(io.a2a.spec.Message.Role.AGENT)
+                                .parts(new TextPart("Agent response"))
+                                .contextId(contextId)
+                                .taskId(taskId)
+                                .metadata(Map.of("agentMeta", "value2"))
+                                .build()
+                ))
+                .artifacts(List.of(
+                        new Artifact.Builder()
+                                .artifactId("art-001")
+                                .name("Result Document")
+                                .description("Generated document")
+                                .parts(new TextPart("Document content"))
+                                .metadata(Map.of("pages", 5))
+                                .extensions(List.of("doc", "pdf"))
+                                .build()
+                ))
+                .metadata(Map.of("source", "test", "priority", 1))
+                .build();
+        
+        taskStore.save(task);
+        Task retrieved = taskStore.get(taskId);
+        
+        assertThat(retrieved).isNotNull();
+        assertThat(retrieved.getId()).isEqualTo(taskId);
+        assertThat(retrieved.getContextId()).isEqualTo(contextId);
+        assertThat(retrieved.getStatus().state()).isEqualTo(TaskState.COMPLETED);
+        assertThat(retrieved.getStatus().timestamp()).isNotNull();
+        assertThat(retrieved.getStatus().message()).isNotNull();
+        assertThat(retrieved.getStatus().message().getParts()).hasSize(1);
+        assertThat(((TextPart) retrieved.getStatus().message().getParts().get(0)).getText())
+                .isEqualTo("Status message content");
+        
+        assertThat(retrieved.getHistory()).hasSize(2);
+        assertThat(retrieved.getArtifacts()).hasSize(1);
+        assertThat(retrieved.getMetadata()).containsEntry("source", "test");
+        assertThat(retrieved.getMetadata()).containsEntry("priority", 1);
+    }
+
+    @Test
+    void historyEntryPreservesAllFields() {
+        String taskId = "task-history-fields";
+        String messageId = "custom-msg-123";
+        String contextId = "ctx-history";
+        
+        io.a2a.spec.Message message = new io.a2a.spec.Message.Builder()
+                .messageId(messageId)
+                .role(io.a2a.spec.Message.Role.AGENT)
+                .parts(new TextPart("Test content"))
+                .contextId(contextId)
+                .taskId(taskId)
+                .metadata(Map.of("key1", "val1", "num", 42))
+                .build();
+        
+        Task task = new Task.Builder()
+                .id(taskId)
+                .contextId(taskId)
+                .status(new TaskStatus(TaskState.WORKING))
+                .history(List.of(message))
+                .build();
+        
+        taskStore.save(task);
+        Task retrieved = taskStore.get(taskId);
+        
+        assertThat(retrieved.getHistory()).hasSize(1);
+        io.a2a.spec.Message retrievedMsg = retrieved.getHistory().get(0);
+        
+        assertThat(retrievedMsg.getMessageId()).isEqualTo(messageId);
+        assertThat(retrievedMsg.getRole()).isEqualTo(io.a2a.spec.Message.Role.AGENT);
+        assertThat(retrievedMsg.getParts()).hasSize(1);
+        assertThat(((TextPart) retrievedMsg.getParts().get(0)).getText()).isEqualTo("Test content");
+        assertThat(retrievedMsg.getContextId()).isEqualTo(taskId); // Uses taskId per design
+        assertThat(retrievedMsg.getTaskId()).isEqualTo(taskId); // Uses taskId per design
+        assertThat(retrievedMsg.getMetadata()).containsEntry("key1", "val1");
+        assertThat(retrievedMsg.getMetadata()).containsEntry("num", 42);
+    }
+
+    @Test
+    void taskWithSpecialCharactersAndUnicode() {
+        String taskId = "task-unicode-日本語";
+        String content = "Special chars: \n\t\"quotes\" 'apostrophes' \\backslash emoji: 🎉";
+        
+        Task task = new Task.Builder()
+                .id(taskId)
+                .contextId(taskId)
+                .status(new TaskStatus(TaskState.WORKING))
+                .history(List.of(
+                        new io.a2a.spec.Message.Builder()
+                                .role(io.a2a.spec.Message.Role.USER)
+                                .parts(new TextPart(content))
+                                .build()
+                ))
+                .artifacts(List.of(
+                        new Artifact.Builder()
+                                .artifactId("art-unicode")
+                                .name("Unicode Test: テスト")
+                                .description("Description with émojis: 🚀 🎨 🔧")
+                                .parts(new TextPart("Unicode content: привет мир 你好世界"))
+                                .metadata(Map.of("unicode-key", "日本語値", "emoji", "🎯"))
+                                .build()
+                ))
+                .metadata(Map.of("special-key", "val\nue", "unicode", "中文"))
+                .build();
+        
+        taskStore.save(task);
+        Task retrieved = taskStore.get(taskId);
+        
+        assertThat(retrieved.getId()).isEqualTo(taskId);
+        assertThat(retrieved.getMetadata().get("unicode")).isEqualTo("中文");
+        
+        TextPart retrievedPart = (TextPart) retrieved.getHistory().get(0).getParts().get(0);
+        assertThat(retrievedPart.getText()).isEqualTo(content);
+        
+        Artifact artifact = retrieved.getArtifacts().get(0);
+        assertThat(artifact.name()).contains("テスト");
+        assertThat(artifact.metadata().get("emoji")).isEqualTo("🎯");
+    }
+
+    @Test
+    void taskStatusWithNullMessageIsPreserved() {
+        String taskId = "task-null-status-msg";
+        OffsetDateTime timestamp = OffsetDateTime.now();
+        
+        Task task = new Task.Builder()
+                .id(taskId)
+                .contextId(taskId)
+                .status(new TaskStatus(TaskState.WORKING, null, timestamp))
+                .history(List.of(createMessage(io.a2a.spec.Message.Role.USER, "test")))
+                .build();
+        
+        taskStore.save(task);
+        Task retrieved = taskStore.get(taskId);
+        
+        assertThat(retrieved.getStatus().state()).isEqualTo(TaskState.WORKING);
+        assertThat(retrieved.getStatus().message()).isNull();
+        assertThat(retrieved.getStatus().timestamp()).isNotNull();
+    }
+
+    @Test
+    void emptyCollectionsArePreserved() {
+        String taskId = "task-empty-collections";
+        
+        Task task = new Task.Builder()
+                .id(taskId)
+                .contextId(taskId)
+                .status(new TaskStatus(TaskState.COMPLETED))
+                .history(List.of())
+                .artifacts(List.of())
+                .metadata(Map.of())
+                .build();
+        
+        taskStore.save(task);
+        Task retrieved = taskStore.get(taskId);
+        
+        assertThat(retrieved.getHistory()).isEmpty();
+        assertThat(retrieved.getArtifacts()).isEmpty();
+        assertThat(retrieved.getMetadata()).isEmpty();
+    }
+
+    @Test
+    void databaseColumnsStoreCorrectData() throws Exception {
+        String taskId = "task-db-columns";
+        OffsetDateTime beforeSave = OffsetDateTime.now();
+        
+        Task task = new Task.Builder()
+                .id(taskId)
+                .contextId(taskId)
+                .status(new TaskStatus(TaskState.WORKING, null, beforeSave))
+                .history(List.of(
+                        new io.a2a.spec.Message.Builder()
+                                .messageId("msg-db-001")
+                                .role(io.a2a.spec.Message.Role.USER)
+                                .parts(new TextPart("DB test"))
+                                .metadata(Map.of("db-key", "db-value"))
+                                .build()
+                ))
+                .artifacts(List.of(
+                        new Artifact.Builder()
+                                .artifactId("art-db-001")
+                                .name("DB Artifact")
+                                .parts(new TextPart("Artifact content"))
+                                .metadata(Map.of("art-meta", 123))
+                                .extensions(List.of("ext1"))
+                                .build()
+                ))
+                .metadata(Map.of("task-meta", "task-value"))
+                .build();
+        
+        taskStore.save(task);
+        
+        // Verify task table
+        Map<String, Object> taskRow = jdbcTemplate.queryForMap(
+                "SELECT * FROM a2a_tasks WHERE task_id = ?", taskId);
+        assertThat(taskRow.get("task_id")).isEqualTo(taskId);
+        assertThat(taskRow.get("status_state")).isEqualTo("working");
+        assertThat(taskRow.get("metadata_json")).isNotNull();
+        
+        // Verify history table
+        Map<String, Object> historyRow = jdbcTemplate.queryForMap(
+                "SELECT * FROM a2a_history WHERE task_id = ?", taskId);
+        assertThat(historyRow.get("task_id")).isEqualTo(taskId);
+        assertThat(historyRow.get("message_id")).isEqualTo("msg-db-001");
+        assertThat(historyRow.get("role")).isEqualTo("USER");
+        assertThat(historyRow.get("content_json")).isNotNull();
+        assertThat(historyRow.get("metadata_json")).isNotNull();
+        assertThat(historyRow.get("sequence_num")).isEqualTo(0);
+        
+        // Verify artifacts table
+        Map<String, Object> artifactRow = jdbcTemplate.queryForMap(
+                "SELECT * FROM a2a_artifacts WHERE task_id = ?", taskId);
+        assertThat(artifactRow.get("task_id")).isEqualTo(taskId);
+        assertThat(artifactRow.get("artifact_id")).isEqualTo("art-db-001");
+        assertThat(artifactRow.get("name")).isEqualTo("DB Artifact");
+        assertThat(artifactRow.get("content_json")).isNotNull();
+        assertThat(artifactRow.get("metadata_json")).isNotNull();
+        assertThat(artifactRow.get("extensions_json")).isNotNull();
+    }
+
+    @Test
+    void messageWithMultiplePartsPreservesAllParts() throws Exception {
+        String taskId = "task-multi-parts";
+        
+        Task task = new Task.Builder()
+                .id(taskId)
+                .contextId(taskId)
+                .status(new TaskStatus(TaskState.WORKING))
+                .history(List.of(
+                        new io.a2a.spec.Message.Builder()
+                                .role(io.a2a.spec.Message.Role.AGENT)
+                                .parts(
+                                        new TextPart("First part"),
+                                        new TextPart("Second part"),
+                                        new TextPart("Third part")
+                                )
+                                .build()
+                ))
+                .build();
+        
+        taskStore.save(task);
+        Task retrieved = taskStore.get(taskId);
+        
+        assertThat(retrieved.getHistory().get(0).getParts()).hasSize(3);
+        List<?> parts = retrieved.getHistory().get(0).getParts();
+        assertThat(((TextPart) parts.get(0)).getText()).isEqualTo("First part");
+        assertThat(((TextPart) parts.get(1)).getText()).isEqualTo("Second part");
+        assertThat(((TextPart) parts.get(2)).getText()).isEqualTo("Third part");
+        
+        // Verify in DB
+        String contentJson = jdbcTemplate.queryForObject(
+                "SELECT content_json FROM a2a_history WHERE task_id = ?",
+                String.class, taskId);
+        assertThat(contentJson).contains("First part");
+        assertThat(contentJson).contains("Second part");
+        assertThat(contentJson).contains("Third part");
+    }
+
+    @Test
+    void largeTextContentIsPreserved() {
+        String taskId = "task-large-text";
+        StringBuilder largeText = new StringBuilder();
+        for (int i = 0; i < 1000; i++) {
+            largeText.append("Line ").append(i).append(" with some content here. ");
+        }
+        String largeContent = largeText.toString();
+        
+        Task task = new Task.Builder()
+                .id(taskId)
+                .contextId(taskId)
+                .status(new TaskStatus(TaskState.WORKING))
+                .history(List.of(
+                        new io.a2a.spec.Message.Builder()
+                                .role(io.a2a.spec.Message.Role.USER)
+                                .parts(new TextPart(largeContent))
+                                .build()
+                ))
+                .artifacts(List.of(
+                        new Artifact.Builder()
+                                .artifactId("art-large")
+                                .name("Large Content")
+                                .parts(new TextPart(largeContent))
+                                .build()
+                ))
+                .build();
+        
+        taskStore.save(task);
+        Task retrieved = taskStore.get(taskId);
+        
+        String retrievedHistoryText = ((TextPart) retrieved.getHistory().get(0).getParts().get(0)).getText();
+        String retrievedArtifactText = ((TextPart) retrieved.getArtifacts().get(0).parts().get(0)).getText();
+        
+        assertThat(retrievedHistoryText).hasSize(largeContent.length());
+        assertThat(retrievedHistoryText).isEqualTo(largeContent);
+        assertThat(retrievedArtifactText).isEqualTo(largeContent);
+    }
+
+    @Test
+    void metadataWithNestedStructuresIsPreserved() {
+        String taskId = "task-nested-metadata";
+        
+        Map<String, Object> deeplyNested = new LinkedHashMap<>();
+        deeplyNested.put("level1", Map.of(
+                "level2", Map.of(
+                        "level3", Map.of("value", "deep")
+                )
+        ));
+        deeplyNested.put("array", List.of(1, 2, List.of("nested", "array")));
+        deeplyNested.put("mixed", List.of(
+                Map.of("type", "object"),
+                "string",
+                123,
+                true
+        ));
+        
+        Task task = new Task.Builder()
+                .id(taskId)
+                .contextId(taskId)
+                .status(new TaskStatus(TaskState.WORKING))
+                .history(List.of(
+                        new io.a2a.spec.Message.Builder()
+                                .role(io.a2a.spec.Message.Role.USER)
+                                .parts(new TextPart("test"))
+                                .metadata(deeplyNested)
+                                .build()
+                ))
+                .metadata(deeplyNested)
+                .build();
+        
+        taskStore.save(task);
+        Task retrieved = taskStore.get(taskId);
+        
+        assertThat(retrieved.getMetadata()).isNotNull();
+        assertThat(retrieved.getMetadata()).containsKey("level1");
+        assertThat(retrieved.getMetadata()).containsKey("array");
+        assertThat(retrieved.getMetadata()).containsKey("mixed");
+        
+        @SuppressWarnings("unchecked")
+        Map<String, Object> level1 = (Map<String, Object>) retrieved.getMetadata().get("level1");
+        assertThat(level1).containsKey("level2");
+        
+        @SuppressWarnings("unchecked")
+        List<?> array = (List<?>) retrieved.getMetadata().get("array");
+        assertThat(array).hasSize(3);
+        
+        @SuppressWarnings("unchecked")
+        List<?> mixed = (List<?>) retrieved.getMetadata().get("mixed");
+        assertThat(mixed).hasSize(4); // null values are dropped during JSON serialization
+    }
+
+    @Test
+    void taskStatusTimestampIsPreserved() {
+        String taskId = "task-status-timestamp";
+        OffsetDateTime specificTime = OffsetDateTime.parse("2024-12-25T10:30:00+01:00");
+        
+        Task task = new Task.Builder()
+                .id(taskId)
+                .contextId(taskId)
+                .status(new TaskStatus(TaskState.COMPLETED, null, specificTime))
+                .history(List.of(createMessage(io.a2a.spec.Message.Role.USER, "test")))
+                .build();
+        
+        taskStore.save(task);
+        Task retrieved = taskStore.get(taskId);
+        
+        assertThat(retrieved.getStatus().timestamp()).isNotNull();
+        // Compare as string to avoid microsecond precision issues
+        assertThat(retrieved.getStatus().timestamp().toString())
+                .startsWith(specificTime.toString().substring(0, 19));
+    }
+
+    @Test
+    void artifactExtensionsNullHandling() {
+        String taskId = "task-artifact-null-ext";
+        
+        Task task = new Task.Builder()
+                .id(taskId)
+                .contextId(taskId)
+                .status(new TaskStatus(TaskState.WORKING))
+                .history(List.of(createMessage(io.a2a.spec.Message.Role.USER, "test")))
+                .artifacts(List.of(
+                        new Artifact.Builder()
+                                .artifactId("art-null-ext")
+                                .name("No Extensions")
+                                .parts(new TextPart("content"))
+                                .extensions(null)
+                                .build()
+                ))
+                .build();
+        
+        taskStore.save(task);
+        Task retrieved = taskStore.get(taskId);
+        
+        Artifact artifact = retrieved.getArtifacts().get(0);
+        assertThat(artifact.extensions()).isEmpty();
     }
 
     private Task createSampleTask(String taskId) {
