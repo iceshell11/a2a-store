@@ -3,6 +3,9 @@ package io.a2a.extras.taskstore.jdbc;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.a2a.extras.taskstore.A2aTaskStoreProperties;
+import io.a2a.extras.taskstore.repository.ArtifactRepository;
+import io.a2a.extras.taskstore.repository.HistoryRepository;
+import io.a2a.extras.taskstore.repository.TaskRepository;
 import io.a2a.spec.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,7 +39,11 @@ class JdbcTaskStoreIntegrationTest {
     @BeforeEach
     void setUp() {
         properties = new A2aTaskStoreProperties();
-        taskStore = new JdbcTaskStore(jdbcTemplate, properties);
+        JsonbAdapter jsonbAdapter = JsonbAdapterFactory.create(jdbcTemplate);
+        TaskRepository taskRepository = new TaskRepository(jdbcTemplate, jsonbAdapter);
+        HistoryRepository historyRepository = new HistoryRepository(jdbcTemplate, jsonbAdapter, properties);
+        ArtifactRepository artifactRepository = new ArtifactRepository(jdbcTemplate, jsonbAdapter, properties);
+        taskStore = new JdbcTaskStore(taskRepository, historyRepository, artifactRepository, properties);
 
         // Clean up tables before each test
         jdbcTemplate.execute("DELETE FROM a2a_artifacts");
@@ -65,7 +72,11 @@ class JdbcTaskStoreIntegrationTest {
     void saveTaskWithoutArtifactsAndMetadata() {
         properties.setStoreArtifacts(false);
         properties.setStoreMetadata(false);
-        taskStore = new JdbcTaskStore(jdbcTemplate, properties);
+        JsonbAdapter jsonbAdapter = JsonbAdapterFactory.create(jdbcTemplate);
+        TaskRepository taskRepository = new TaskRepository(jdbcTemplate, jsonbAdapter);
+        HistoryRepository historyRepository = new HistoryRepository(jdbcTemplate, jsonbAdapter, properties);
+        ArtifactRepository artifactRepository = new ArtifactRepository(jdbcTemplate, jsonbAdapter, properties);
+        taskStore = new JdbcTaskStore(taskRepository, historyRepository, artifactRepository, properties);
 
         String taskId = "conv-456";
         Task task = createSampleTask(taskId);
@@ -477,7 +488,11 @@ class JdbcTaskStoreIntegrationTest {
     @Test
     void saveUsesBatchingForMessagesArtifactsAndMetadata() {
         properties.setBatchSize(2);
-        taskStore = new JdbcTaskStore(jdbcTemplate, properties);
+        JsonbAdapter jsonbAdapter = JsonbAdapterFactory.create(jdbcTemplate);
+        TaskRepository taskRepository = new TaskRepository(jdbcTemplate, jsonbAdapter);
+        HistoryRepository historyRepository = new HistoryRepository(jdbcTemplate, jsonbAdapter, properties);
+        ArtifactRepository artifactRepository = new ArtifactRepository(jdbcTemplate, jsonbAdapter, properties);
+        taskStore = new JdbcTaskStore(taskRepository, historyRepository, artifactRepository, properties);
 
         String taskId = "conv-batch";
         List<io.a2a.spec.Message> messages = IntStream.range(0, 5)

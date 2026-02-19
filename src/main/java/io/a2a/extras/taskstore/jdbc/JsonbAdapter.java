@@ -9,7 +9,7 @@ import java.sql.SQLException;
  * Handles PostgreSQL JSONB columns by wrapping values in PGobject.
  */
 @FunctionalInterface
-interface JsonbAdapter {
+public interface JsonbAdapter {
 
     /**
      * Converts a JSON string to a database-compatible parameter.

@@ -1,6 +1,9 @@
 package io.a2a.extras.taskstore.jdbc;
 
 import io.a2a.extras.taskstore.A2aTaskStoreProperties;
+import io.a2a.extras.taskstore.repository.ArtifactRepository;
+import io.a2a.extras.taskstore.repository.HistoryRepository;
+import io.a2a.extras.taskstore.repository.TaskRepository;
 import io.a2a.spec.*;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,7 +34,11 @@ class JdbcTaskStorePostgresIntegrationTest {
         DataSource dataSource = createPostgresDataSource();
         jdbcTemplate = new JdbcTemplate(dataSource);
         properties = new A2aTaskStoreProperties();
-        taskStore = new JdbcTaskStore(jdbcTemplate, properties);
+        JsonbAdapter jsonbAdapter = JsonbAdapterFactory.create(jdbcTemplate);
+        TaskRepository taskRepository = new TaskRepository(jdbcTemplate, jsonbAdapter);
+        HistoryRepository historyRepository = new HistoryRepository(jdbcTemplate, jsonbAdapter, properties);
+        ArtifactRepository artifactRepository = new ArtifactRepository(jdbcTemplate, jsonbAdapter, properties);
+        taskStore = new JdbcTaskStore(taskRepository, historyRepository, artifactRepository, properties);
 
         // Initialize schema
         initializeSchema();
@@ -192,7 +199,11 @@ class JdbcTaskStorePostgresIntegrationTest {
     @Test
     void saveMultipleMessagesWithBatching() {
         properties.setBatchSize(2); // Force multiple batches
-        taskStore = new JdbcTaskStore(jdbcTemplate, properties);
+        JsonbAdapter jsonbAdapter = JsonbAdapterFactory.create(jdbcTemplate);
+        TaskRepository taskRepository = new TaskRepository(jdbcTemplate, jsonbAdapter);
+        HistoryRepository historyRepository = new HistoryRepository(jdbcTemplate, jsonbAdapter, properties);
+        ArtifactRepository artifactRepository = new ArtifactRepository(jdbcTemplate, jsonbAdapter, properties);
+        taskStore = new JdbcTaskStore(taskRepository, historyRepository, artifactRepository, properties);
 
         String taskId = "task-batch-jsonb";
         

@@ -3,6 +3,11 @@ package io.a2a.extras.taskstore.autoconfigure;
 import io.a2a.extras.taskstore.A2aTaskStoreProperties;
 import io.a2a.extras.taskstore.cache.CacheConfig;
 import io.a2a.extras.taskstore.jdbc.JdbcTaskStore;
+import io.a2a.extras.taskstore.jdbc.JsonbAdapter;
+import io.a2a.extras.taskstore.jdbc.JsonbAdapterFactory;
+import io.a2a.extras.taskstore.repository.ArtifactRepository;
+import io.a2a.extras.taskstore.repository.HistoryRepository;
+import io.a2a.extras.taskstore.repository.TaskRepository;
 import io.a2a.extras.taskstore.springai.TaskStoreChatMemoryAdapter;
 import io.a2a.server.tasks.TaskStateProvider;
 import io.a2a.server.tasks.TaskStore;
@@ -25,8 +30,36 @@ public class A2aTaskStoreAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public JdbcTaskStore jdbcTaskStore(JdbcTemplate jdbcTemplate, A2aTaskStoreProperties properties) {
-        return new JdbcTaskStore(jdbcTemplate, properties);
+    public JsonbAdapter jsonbAdapter(JdbcTemplate jdbcTemplate) {
+        return JsonbAdapterFactory.create(jdbcTemplate);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public TaskRepository taskRepository(JdbcTemplate jdbcTemplate, JsonbAdapter jsonbAdapter) {
+        return new TaskRepository(jdbcTemplate, jsonbAdapter);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public HistoryRepository historyRepository(JdbcTemplate jdbcTemplate, JsonbAdapter jsonbAdapter, A2aTaskStoreProperties properties) {
+        return new HistoryRepository(jdbcTemplate, jsonbAdapter, properties);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ArtifactRepository artifactRepository(JdbcTemplate jdbcTemplate, JsonbAdapter jsonbAdapter, A2aTaskStoreProperties properties) {
+        return new ArtifactRepository(jdbcTemplate, jsonbAdapter, properties);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public JdbcTaskStore jdbcTaskStore(
+            TaskRepository taskRepository,
+            HistoryRepository historyRepository,
+            ArtifactRepository artifactRepository,
+            A2aTaskStoreProperties properties) {
+        return new JdbcTaskStore(taskRepository, historyRepository, artifactRepository, properties);
     }
 
     @Bean
