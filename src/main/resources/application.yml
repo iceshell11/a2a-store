@@ -1,0 +1,31 @@
+spring:
+  application:
+    name: a2a-task-store
+  datasource:
+    url: jdbc:postgresql://localhost:5432/a2a_store
+    username: ${DB_USERNAME:a2a}
+    password: ${DB_PASSWORD:a2a}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+a2a:
+  taskstore:
+    jdbc:
+      enabled: true
+      schema: public
+
+logging:
+  level:
+    org.flywaydb: DEBUG
+    io.a2a.extras.taskstore: DEBUG
