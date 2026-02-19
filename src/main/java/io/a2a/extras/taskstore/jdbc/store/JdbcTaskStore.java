@@ -40,12 +40,14 @@ public class JdbcTaskStore implements TaskStore {
 
         UUID taskId = UUID.fromString(task.getId());
         
+        // Delete existing task and all related entities if present
         Optional<TaskEntity> existing = taskRepository.findById(taskId);
         if (existing.isPresent()) {
-            artifactRepository.deleteByTaskId(taskId);
-            messageRepository.deleteByTaskId(taskId);
+            taskRepository.delete(existing.get());
+            taskRepository.flush();
         }
 
+        // Create and save new entity
         TaskEntity entity = taskMapper.toEntity(task);
         taskRepository.save(entity);
     }
@@ -58,9 +60,16 @@ public class JdbcTaskStore implements TaskStore {
         }
 
         UUID id = UUID.fromString(taskId);
-        return taskRepository.findWithArtifactsAndMessagesById(id)
-                .map(taskMapper::fromEntity)
-                .orElse(null);
+        TaskEntity taskEntity = taskRepository.findById(id).orElse(null);
+        if (taskEntity == null) {
+            return null;
+        }
+        
+        // Load artifacts and messages separately to avoid MultipleBagFetchException
+        taskEntity.setArtifacts(artifactRepository.findByTaskIdOrderByCreatedAt(id));
+        taskEntity.setMessages(messageRepository.findByTaskIdOrderByCreatedAtAsc(id));
+        
+        return taskMapper.fromEntity(taskEntity);
     }
 
     @Override

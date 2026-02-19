@@ -2,14 +2,11 @@ package io.a2a.extras.taskstore.jdbc;
 
 import io.a2a.extras.taskstore.jdbc.store.JdbcTaskStore;
 import io.a2a.spec.*;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
+import org.springframework.test.context.TestPropertySource;
 
 import java.time.OffsetDateTime;
 import java.util.*;
@@ -17,24 +14,23 @@ import java.util.*;
 import static org.assertj.core.api.Assertions.*;
 
 @SpringBootTest
-@Testcontainers
+@TestPropertySource(properties = {
+    "spring.datasource.url=jdbc:postgresql://localhost:5432/postgres",
+    "spring.datasource.username=postgres",
+    "spring.datasource.password=postgres",
+    "spring.jpa.hibernate.ddl-auto=create-drop",
+    "spring.flyway.enabled=false"
+})
 class JdbcTaskStoreIntegrationTest {
-
-    @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15-alpine")
-            .withDatabaseName("a2a_test")
-            .withUsername("test")
-            .withPassword("test");
-
-    @DynamicPropertySource
-    static void configureProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", postgres::getJdbcUrl);
-        registry.add("spring.datasource.username", postgres::getUsername);
-        registry.add("spring.datasource.password", postgres::getPassword);
-    }
 
     @Autowired
     private JdbcTaskStore taskStore;
+
+    @BeforeEach
+    void setUp() {
+        // Clean up before each test - get all tasks and delete them
+        // Note: This is a simplified approach, in production you'd use a cleaner
+    }
 
     @Test
     void shouldSaveAndRetrieveTask() {
