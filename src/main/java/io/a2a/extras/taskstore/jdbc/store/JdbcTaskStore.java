@@ -9,8 +9,8 @@ import io.a2a.server.tasks.TaskStore;
 import io.a2a.spec.Task;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
-import java.util.Optional;
 import java.util.UUID;
 
 @Component
@@ -34,52 +34,63 @@ public class JdbcTaskStore implements TaskStore {
     @Override
     @Transactional
     public void save(Task task) {
-        if (task == null) {
-            throw new IllegalArgumentException("Task cannot be null");
-        }
-
-        UUID taskId = UUID.fromString(task.getId());
+        requireNonNull(task, "Task cannot be null");
         
-        // Delete existing task and all related entities if present
-        Optional<TaskEntity> existing = taskRepository.findById(taskId);
-        if (existing.isPresent()) {
-            taskRepository.delete(existing.get());
-            taskRepository.flush();
-        }
-
-        // Create and save new entity
-        TaskEntity entity = taskMapper.toEntity(task);
-        taskRepository.save(entity);
+        UUID taskId = UUID.fromString(task.getId());
+        replaceExistingTask(taskId, task);
     }
 
     @Override
     @Transactional(readOnly = true)
     public Task get(String taskId) {
-        if (taskId == null || taskId.isBlank()) {
-            throw new IllegalArgumentException("Task ID cannot be null or blank");
-        }
-
-        UUID id = UUID.fromString(taskId);
-        TaskEntity taskEntity = taskRepository.findById(id).orElse(null);
-        if (taskEntity == null) {
+        requireNonBlank(taskId, "Task ID cannot be null or blank");
+        
+        UUID id = parseUuid(taskId);
+        TaskEntity entity = taskRepository.findById(id).orElse(null);
+        
+        if (entity == null) {
             return null;
         }
         
-        // Load artifacts and messages separately to avoid MultipleBagFetchException
-        taskEntity.setArtifacts(artifactRepository.findByTaskIdOrderByCreatedAt(id));
-        taskEntity.setMessages(messageRepository.findByTaskIdOrderByCreatedAtAsc(id));
-        
-        return taskMapper.fromEntity(taskEntity);
+        loadRelatedEntities(entity, id);
+        return taskMapper.fromEntity(entity);
     }
 
     @Override
     @Transactional
     public void delete(String taskId) {
-        if (taskId == null || taskId.isBlank()) {
-            throw new IllegalArgumentException("Task ID cannot be null or blank");
-        }
+        requireNonBlank(taskId, "Task ID cannot be null or blank");
+        taskRepository.deleteById(parseUuid(taskId));
+    }
 
-        UUID id = UUID.fromString(taskId);
-        taskRepository.deleteById(id);
+    private void replaceExistingTask(UUID taskId, Task task) {
+        taskRepository.findById(taskId).ifPresent(existing -> {
+            taskRepository.delete(existing);
+            taskRepository.flush();
+        });
+        
+        TaskEntity entity = taskMapper.toEntity(task);
+        taskRepository.save(entity);
+    }
+
+    private void loadRelatedEntities(TaskEntity entity, UUID taskId) {
+        entity.setArtifacts(artifactRepository.findByTaskIdOrderByCreatedAt(taskId));
+        entity.setMessages(messageRepository.findByTaskIdOrderByCreatedAtAsc(taskId));
+    }
+
+    private UUID parseUuid(String taskId) {
+        return UUID.fromString(taskId);
+    }
+
+    private void requireNonNull(Object value, String message) {
+        if (value == null) {
+            throw new IllegalArgumentException(message);
+        }
+    }
+
+    private void requireNonBlank(String value, String message) {
+        if (!StringUtils.hasText(value)) {
+            throw new IllegalArgumentException(message);
+        }
     }
 }
