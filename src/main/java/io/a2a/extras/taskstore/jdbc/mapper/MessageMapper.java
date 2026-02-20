@@ -6,7 +6,6 @@ import io.a2a.spec.Message;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
-import java.util.UUID;
 
 @Component
 public class MessageMapper {
@@ -19,9 +18,9 @@ public class MessageMapper {
         this.jsonUtils = jsonUtils;
     }
 
-    public MessageEntity toEntity(Message message, UUID taskId) {
+    public MessageEntity toEntity(Message message, String taskId) {
         MessageEntity entity = new MessageEntity();
-        entity.setMessageId(UUID.fromString(message.getMessageId()));
+        entity.setMessageId(message.getMessageId());
         entity.setTaskId(taskId);
         entity.setRole(mapRole(message.getRole()));
         entity.setParts(partConverter.toJsonNode(message.getParts()));
@@ -34,7 +33,7 @@ public class MessageMapper {
 
     public Message fromEntity(MessageEntity entity) {
         return new Message.Builder()
-                .messageId(entity.getMessageId().toString())
+                .messageId(entity.getMessageId())
                 .role(mapRole(entity.getRole()))
                 .parts(partConverter.fromJsonNode(entity.getParts()))
                 .contextId(entity.getContextId())

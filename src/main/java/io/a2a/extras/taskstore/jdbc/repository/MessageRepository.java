@@ -5,14 +5,13 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
-import java.util.UUID;
 
 @Repository
-public interface MessageRepository extends JpaRepository<MessageEntity, UUID> {
+public interface MessageRepository extends JpaRepository<MessageEntity, String> {
 
-    List<MessageEntity> findByTaskIdOrderByCreatedAtAsc(UUID taskId);
+    List<MessageEntity> findByTaskIdOrderByCreatedAtAsc(String taskId);
 
     List<MessageEntity> findByContextId(String contextId);
 
-    void deleteByTaskId(UUID taskId);
+    void deleteByTaskId(String taskId);
 }

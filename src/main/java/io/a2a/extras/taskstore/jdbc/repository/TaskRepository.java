@@ -9,10 +9,9 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
 @Repository
-public interface TaskRepository extends JpaRepository<TaskEntity, UUID> {
+public interface TaskRepository extends JpaRepository<TaskEntity, String> {
 
     List<TaskEntity> findByContextId(String contextId);
 
@@ -21,5 +20,5 @@ public interface TaskRepository extends JpaRepository<TaskEntity, UUID> {
     List<TaskEntity> findByFinalizedAtIsNull();
 
     @Query("SELECT t FROM TaskEntity t LEFT JOIN FETCH t.artifacts WHERE t.id = :id")
-    Optional<TaskEntity> findWithArtifactsById(@Param("id") UUID id);
+    Optional<TaskEntity> findWithArtifactsById(@Param("id") String id);
 }

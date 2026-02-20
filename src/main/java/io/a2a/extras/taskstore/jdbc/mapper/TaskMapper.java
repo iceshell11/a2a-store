@@ -12,7 +12,6 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 
 @Component
 public class TaskMapper {
@@ -40,7 +39,7 @@ public class TaskMapper {
 
     public TaskEntity toEntity(Task task) {
         TaskEntity entity = new TaskEntity();
-        entity.setId(UUID.fromString(task.getId()));
+        entity.setId(task.getId());
         entity.setContextId(task.getContextId());
         entity.setStatusState(toEntityState(task.getStatus().state()));
         entity.setStatusMessage(jsonUtils.toJsonNode(task.getStatus().message()));
@@ -61,7 +60,7 @@ public class TaskMapper {
 
     public Task fromEntity(TaskEntity entity) {
         return new Task.Builder()
-                .id(entity.getId().toString())
+                .id(entity.getId())
                 .contextId(entity.getContextId())
                 .status(buildStatus(entity))
                 .artifacts(entity.getArtifacts().stream()

@@ -6,14 +6,13 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
 @Repository
-public interface ArtifactRepository extends JpaRepository<ArtifactEntity, UUID> {
+public interface ArtifactRepository extends JpaRepository<ArtifactEntity, String> {
 
-    List<ArtifactEntity> findByTaskIdOrderByCreatedAt(UUID taskId);
+    List<ArtifactEntity> findByTaskIdOrderByCreatedAt(String taskId);
 
-    Optional<ArtifactEntity> findByTaskIdAndName(UUID taskId, String name);
+    Optional<ArtifactEntity> findByTaskIdAndName(String taskId, String name);
 
-    void deleteByTaskId(UUID taskId);
+    void deleteByTaskId(String taskId);
 }

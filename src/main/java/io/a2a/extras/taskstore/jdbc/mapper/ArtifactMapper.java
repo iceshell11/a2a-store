@@ -5,7 +5,6 @@ import io.a2a.spec.Artifact;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
-import java.util.UUID;
 
 @Component
 public class ArtifactMapper {
@@ -18,9 +17,9 @@ public class ArtifactMapper {
         this.jsonUtils = jsonUtils;
     }
 
-    public ArtifactEntity toEntity(Artifact artifact, UUID taskId) {
+    public ArtifactEntity toEntity(Artifact artifact, String taskId) {
         ArtifactEntity entity = new ArtifactEntity();
-        entity.setArtifactId(UUID.fromString(artifact.artifactId()));
+        entity.setArtifactId(artifact.artifactId());
         entity.setTaskId(taskId);
         entity.setName(artifact.name());
         entity.setDescription(artifact.description());
@@ -32,7 +31,7 @@ public class ArtifactMapper {
 
     public Artifact fromEntity(ArtifactEntity entity) {
         return new Artifact.Builder()
-                .artifactId(entity.getArtifactId().toString())
+                .artifactId(entity.getArtifactId())
                 .name(entity.getName())
                 .description(entity.getDescription())
                 .parts(partConverter.fromJsonNode(entity.getParts()))

@@ -12,7 +12,6 @@ import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 
 @Entity
 @Table(name = "tasks")
@@ -21,8 +20,8 @@ import java.util.UUID;
 public class TaskEntity {
 
     @Id
-    @Column(name = "id", nullable = false, updatable = false)
-    private UUID id;
+    @Column(name = "id", nullable = false, updatable = false, length = 255)
+    private String id;
 
     @Column(name = "context_id", nullable = false, length = 255)
     private String contextId;

@@ -9,9 +9,7 @@ import io.a2a.server.tasks.TaskStore;
 import io.a2a.spec.Task;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
-
-import java.util.UUID;
+import org.springframework.util.Assert;
 
 @Component
 public class JdbcTaskStore implements TaskStore {
@@ -34,36 +32,34 @@ public class JdbcTaskStore implements TaskStore {
     @Override
     @Transactional
     public void save(Task task) {
-        requireNonNull(task, "Task cannot be null");
+        Assert.notNull(task, "Task cannot be null");
         
-        UUID taskId = UUID.fromString(task.getId());
-        replaceExistingTask(taskId, task);
+        replaceExistingTask(task.getId(), task);
     }
 
     @Override
     @Transactional(readOnly = true)
     public Task get(String taskId) {
-        requireNonBlank(taskId, "Task ID cannot be null or blank");
+        Assert.hasText(taskId, "Task ID cannot be null or blank");
         
-        UUID id = parseUuid(taskId);
-        TaskEntity entity = taskRepository.findById(id).orElse(null);
+        TaskEntity entity = taskRepository.findById(taskId).orElse(null);
         
         if (entity == null) {
             return null;
         }
         
-        loadRelatedEntities(entity, id);
+        loadRelatedEntities(entity, taskId);
         return taskMapper.fromEntity(entity);
     }
 
     @Override
     @Transactional
     public void delete(String taskId) {
-        requireNonBlank(taskId, "Task ID cannot be null or blank");
-        taskRepository.deleteById(parseUuid(taskId));
+        Assert.hasText(taskId, "Task ID cannot be null or blank");
+        taskRepository.deleteById(taskId);
     }
 
-    private void replaceExistingTask(UUID taskId, Task task) {
+    private void replaceExistingTask(String taskId, Task task) {
         taskRepository.findById(taskId).ifPresent(existing -> {
             taskRepository.delete(existing);
             taskRepository.flush();
@@ -73,24 +69,8 @@ public class JdbcTaskStore implements TaskStore {
         taskRepository.save(entity);
     }
 
-    private void loadRelatedEntities(TaskEntity entity, UUID taskId) {
+    private void loadRelatedEntities(TaskEntity entity, String taskId) {
         entity.setArtifacts(artifactRepository.findByTaskIdOrderByCreatedAt(taskId));
         entity.setMessages(messageRepository.findByTaskIdOrderByCreatedAtAsc(taskId));
-    }
-
-    private UUID parseUuid(String taskId) {
-        return UUID.fromString(taskId);
-    }
-
-    private void requireNonNull(Object value, String message) {
-        if (value == null) {
-            throw new IllegalArgumentException(message);
-        }
-    }
-
-    private void requireNonBlank(String value, String message) {
-        if (!StringUtils.hasText(value)) {
-            throw new IllegalArgumentException(message);
-        }
     }
 }

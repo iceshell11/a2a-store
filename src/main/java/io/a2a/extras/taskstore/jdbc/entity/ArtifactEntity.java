@@ -9,7 +9,6 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
-import java.util.UUID;
 
 @Entity
 @Table(name = "artifacts")
@@ -18,11 +17,11 @@ import java.util.UUID;
 public class ArtifactEntity {
 
     @Id
-    @Column(name = "artifact_id", nullable = false, updatable = false)
-    private UUID artifactId;
+    @Column(name = "artifact_id", nullable = false, updatable = false, length = 255)
+    private String artifactId;
 
-    @Column(name = "task_id", nullable = false)
-    private UUID taskId;
+    @Column(name = "task_id", nullable = false, length = 255)
+    private String taskId;
 
     @Column(name = "name", length = 500)
     private String name;

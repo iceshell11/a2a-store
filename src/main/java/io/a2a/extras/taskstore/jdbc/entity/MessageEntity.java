@@ -9,7 +9,6 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
-import java.util.UUID;
 
 @Entity
 @Table(name = "messages")
@@ -18,11 +17,11 @@ import java.util.UUID;
 public class MessageEntity {
 
     @Id
-    @Column(name = "message_id", nullable = false, updatable = false)
-    private UUID messageId;
+    @Column(name = "message_id", nullable = false, updatable = false, length = 255)
+    private String messageId;
 
-    @Column(name = "task_id", nullable = false)
-    private UUID taskId;
+    @Column(name = "task_id", nullable = false, length = 255)
+    private String taskId;
 
     @Column(name = "role", nullable = false, length = 20)
     @Enumerated(EnumType.STRING)
