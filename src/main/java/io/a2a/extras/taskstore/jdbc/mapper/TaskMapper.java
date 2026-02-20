@@ -29,14 +29,14 @@ public class TaskMapper {
     }
 
     public TaskEntity toEntity(Task task) {
-        TaskEntity entity = new TaskEntity();
-        entity.setId(task.getId());
-        entity.setContextId(task.getContextId());
-        entity.setStatusState(task.getStatus().state());
-        entity.setStatusMessage(jsonUtils.toJsonNode(task.getStatus().message()));
-        entity.setStatusTimestamp(toInstant(task.getStatus().timestamp()));
-        entity.setMetadata(jsonUtils.toJsonNode(task.getMetadata()));
-        entity.setFinalizedAt(isFinalState(task.getStatus().state()) ? Instant.now() : null);
+        TaskEntity entity = new TaskEntity()
+                .setId(task.getId())
+                .setContextId(task.getContextId())
+                .setStatusState(task.getStatus().state())
+                .setStatusMessage(jsonUtils.toJsonNode(task.getStatus().message()))
+                .setStatusTimestamp(toInstant(task.getStatus().timestamp()))
+                .setMetadata(jsonUtils.toJsonNode(task.getMetadata()))
+                .setFinalizedAt(isFinalState(task.getStatus().state()) ? Instant.now() : null);
 
         task.getArtifacts().stream()
                 .map(artifact -> artifactMapper.toEntity(artifact, entity.getId()))

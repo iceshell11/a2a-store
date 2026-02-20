@@ -20,15 +20,14 @@ public class ArtifactMapper {
     }
 
     public ArtifactEntity toEntity(Artifact artifact, String taskId) {
-        ArtifactEntity entity = new ArtifactEntity();
-        entity.setArtifactId(artifact.artifactId());
-        entity.setTaskId(taskId);
-        entity.setName(artifact.name());
-        entity.setDescription(artifact.description());
-        entity.setParts(partConverter.toJsonNode(artifact.parts()));
-        entity.setMetadata(jsonUtils.toJsonNode(artifact.metadata()));
-        entity.setExtensions(jsonUtils.toJsonNode(artifact.extensions()));
-        return entity;
+        return new ArtifactEntity()
+                .setArtifactId(artifact.artifactId())
+                .setTaskId(taskId)
+                .setName(artifact.name())
+                .setDescription(artifact.description())
+                .setParts(partConverter.toJsonNode(artifact.parts()))
+                .setMetadata(jsonUtils.toJsonNode(artifact.metadata()))
+                .setExtensions(jsonUtils.toJsonNode(artifact.extensions()));
     }
 
     public Artifact fromEntity(ArtifactEntity entity) {

@@ -20,16 +20,15 @@ public class MessageMapper {
     }
 
     public MessageEntity toEntity(Message message, String taskId) {
-        MessageEntity entity = new MessageEntity();
-        entity.setMessageId(message.getMessageId());
-        entity.setTaskId(taskId);
-        entity.setRole(message.getRole());
-        entity.setParts(partConverter.toJsonNode(message.getParts()));
-        entity.setContextId(message.getContextId());
-        entity.setReferenceTaskIds(jsonUtils.toJsonNode(message.getReferenceTaskIds()));
-        entity.setMetadata(jsonUtils.toJsonNode(message.getMetadata()));
-        entity.setExtensions(jsonUtils.toJsonNode(message.getExtensions()));
-        return entity;
+        return new MessageEntity()
+                .setMessageId(message.getMessageId())
+                .setTaskId(taskId)
+                .setRole(message.getRole())
+                .setParts(partConverter.toJsonNode(message.getParts()))
+                .setContextId(message.getContextId())
+                .setReferenceTaskIds(jsonUtils.toJsonNode(message.getReferenceTaskIds()))
+                .setMetadata(jsonUtils.toJsonNode(message.getMetadata()))
+                .setExtensions(jsonUtils.toJsonNode(message.getExtensions()));
     }
 
     public Message fromEntity(MessageEntity entity) {

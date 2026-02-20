@@ -3,7 +3,7 @@
 
 -- Tasks table
 CREATE TABLE a2a_tasks (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id VARCHAR(255) PRIMARY KEY,
     context_id VARCHAR(255) NOT NULL,
     status_state VARCHAR(50) NOT NULL,
     status_message JSONB,
@@ -19,8 +19,8 @@ CREATE INDEX idx_a2a_tasks_status_state ON a2a_tasks(status_state);
 
 -- Artifacts table
 CREATE TABLE a2a_artifacts (
-    artifact_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    task_id UUID NOT NULL REFERENCES a2a_tasks(id) ON DELETE CASCADE,
+    artifact_id VARCHAR(255) PRIMARY KEY,
+    task_id VARCHAR(255) NOT NULL REFERENCES a2a_tasks(id) ON DELETE CASCADE,
     name VARCHAR(500),
     description TEXT,
     parts JSONB NOT NULL DEFAULT '[]',
@@ -33,8 +33,8 @@ CREATE INDEX idx_a2a_artifacts_task_id ON a2a_artifacts(task_id);
 
 -- Messages (History) table
 CREATE TABLE a2a_messages (
-    message_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    task_id UUID NOT NULL REFERENCES a2a_tasks(id) ON DELETE CASCADE,
+    message_id VARCHAR(255) PRIMARY KEY,
+    task_id VARCHAR(255) NOT NULL REFERENCES a2a_tasks(id) ON DELETE CASCADE,
     role VARCHAR(20) NOT NULL,
     parts JSONB NOT NULL DEFAULT '[]',
     context_id VARCHAR(255),
