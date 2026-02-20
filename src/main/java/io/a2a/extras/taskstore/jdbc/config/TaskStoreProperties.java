@@ -7,6 +7,7 @@ public class TaskStoreProperties {
 
     private boolean enabled = true;
     private String schema = "public";
+    private String tablePrefix = "a2a_";
 
     public boolean isEnabled() {
         return enabled;
@@ -22,5 +23,13 @@ public class TaskStoreProperties {
 
     public void setSchema(String schema) {
         this.schema = schema;
+    }
+
+    public String getTablePrefix() {
+        return tablePrefix;
+    }
+
+    public void setTablePrefix(String tablePrefix) {
+        this.tablePrefix = tablePrefix;
     }
 }

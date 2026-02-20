@@ -1,10 +1,11 @@
 package io.a2a.extras.taskstore.jdbc.mapper;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import io.a2a.extras.taskstore.jdbc.entity.MessageEntity;
-import io.a2a.extras.taskstore.jdbc.entity.Role;
 import io.a2a.spec.Message;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Map;
 
 @Component
@@ -22,7 +23,7 @@ public class MessageMapper {
         MessageEntity entity = new MessageEntity();
         entity.setMessageId(message.getMessageId());
         entity.setTaskId(taskId);
-        entity.setRole(mapRole(message.getRole()));
+        entity.setRole(message.getRole());
         entity.setParts(partConverter.toJsonNode(message.getParts()));
         entity.setContextId(message.getContextId());
         entity.setReferenceTaskIds(jsonUtils.toJsonNode(message.getReferenceTaskIds()));
@@ -34,20 +35,12 @@ public class MessageMapper {
     public Message fromEntity(MessageEntity entity) {
         return new Message.Builder()
                 .messageId(entity.getMessageId())
-                .role(mapRole(entity.getRole()))
+                .role(entity.getRole())
                 .parts(partConverter.fromJsonNode(entity.getParts()))
                 .contextId(entity.getContextId())
-                .referenceTaskIds(jsonUtils.fromJsonNode(entity.getReferenceTaskIds(), java.util.List.class))
-                .metadata(jsonUtils.fromJsonNode(entity.getMetadata(), Map.class))
-                .extensions(jsonUtils.fromJsonNode(entity.getExtensions(), java.util.List.class))
+                .referenceTaskIds(jsonUtils.fromJsonNode(entity.getReferenceTaskIds(), new TypeReference<List<String>>(){}))
+                .metadata(jsonUtils.fromJsonNode(entity.getMetadata(), new TypeReference<Map<String, Object>>(){}))
+                .extensions(jsonUtils.fromJsonNode(entity.getExtensions(), new TypeReference<List<String>>(){}))
                 .build();
-    }
-
-    private Role mapRole(Message.Role specRole) {
-        return specRole == null ? null : Role.valueOf(specRole.name());
-    }
-
-    private Message.Role mapRole(Role role) {
-        return role == null ? null : Message.Role.valueOf(role.name());
     }
 }

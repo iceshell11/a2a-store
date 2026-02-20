@@ -1,5 +1,6 @@
 package io.a2a.extras.taskstore.jdbc.mapper;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
@@ -12,6 +13,9 @@ import java.util.Map;
 
 @Component
 public class JsonUtils {
+
+    private static final TypeReference<List<?>> LIST_TYPE = new TypeReference<>() {};
+    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
 
     private final ObjectMapper objectMapper;
 
@@ -26,11 +30,23 @@ public class JsonUtils {
         return objectMapper.valueToTree(value);
     }
 
-    public <T> T fromJsonNode(JsonNode node, Class<T> clazz) {
+    public <T> T fromJsonNode(JsonNode node, TypeReference<T> typeRef) {
         if (node == null || node.isNull()) {
-            return emptyValue(clazz);
+            return emptyValue(typeRef);
         }
-        return objectMapper.convertValue(node, clazz);
+        return objectMapper.convertValue(node, typeRef);
+    }
+
+    @SuppressWarnings("unchecked")
+    private <T> T emptyValue(TypeReference<T> typeRef) {
+        String type = typeRef.getType().getTypeName();
+        if (type.startsWith("java.util.List") || type.startsWith("java.util.Collection")) {
+            return (T) new ArrayList<>();
+        }
+        if (type.startsWith("java.util.Map")) {
+            return (T) new HashMap<>();
+        }
+        return null;
     }
 
     private boolean isEmpty(Object value) {
@@ -44,16 +60,5 @@ public class JsonUtils {
             return map.isEmpty();
         }
         return false;
-    }
-
-    @SuppressWarnings("unchecked")
-    private <T> T emptyValue(Class<T> clazz) {
-        if (List.class.equals(clazz)) {
-            return (T) new ArrayList<>();
-        }
-        if (Map.class.equals(clazz)) {
-            return (T) new HashMap<>();
-        }
-        return null;
     }
 }

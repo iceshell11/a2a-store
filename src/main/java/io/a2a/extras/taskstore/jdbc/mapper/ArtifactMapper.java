@@ -1,9 +1,11 @@
 package io.a2a.extras.taskstore.jdbc.mapper;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import io.a2a.extras.taskstore.jdbc.entity.ArtifactEntity;
 import io.a2a.spec.Artifact;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Map;
 
 @Component
@@ -35,8 +37,8 @@ public class ArtifactMapper {
                 .name(entity.getName())
                 .description(entity.getDescription())
                 .parts(partConverter.fromJsonNode(entity.getParts()))
-                .metadata(jsonUtils.fromJsonNode(entity.getMetadata(), Map.class))
-                .extensions(jsonUtils.fromJsonNode(entity.getExtensions(), java.util.List.class))
+                .metadata(jsonUtils.fromJsonNode(entity.getMetadata(), new TypeReference<Map<String, Object>>(){}))
+                .extensions(jsonUtils.fromJsonNode(entity.getExtensions(), new TypeReference<List<String>>(){}))
                 .build();
     }
 }

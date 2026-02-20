@@ -8,6 +8,9 @@ spring:
       ddl-auto: validate
     open-in-view: false
     show-sql: true
+    properties:
+      hibernate:
+        physical_naming_strategy: io.a2a.extras.taskstore.jdbc.config.A2ATablePrefixNamingStrategy
   flyway:
     enabled: true
     locations: classpath:db/migration
@@ -17,6 +20,7 @@ a2a:
   taskstore:
     jdbc:
       enabled: true
+      table-prefix: a2a_
 
 logging:
   level:

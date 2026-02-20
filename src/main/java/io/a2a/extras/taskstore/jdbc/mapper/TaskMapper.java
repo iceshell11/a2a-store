@@ -1,9 +1,9 @@
 package io.a2a.extras.taskstore.jdbc.mapper;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.a2a.extras.taskstore.jdbc.entity.TaskEntity;
-import io.a2a.extras.taskstore.jdbc.entity.TaskState;
 import io.a2a.spec.*;
 import org.springframework.stereotype.Component;
 
@@ -11,18 +11,9 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Map;
-import java.util.Set;
 
 @Component
 public class TaskMapper {
-
-    private static final Set<io.a2a.spec.TaskState> FINAL_STATES = Set.of(
-            io.a2a.spec.TaskState.COMPLETED,
-            io.a2a.spec.TaskState.CANCELED,
-            io.a2a.spec.TaskState.FAILED,
-            io.a2a.spec.TaskState.REJECTED,
-            io.a2a.spec.TaskState.UNKNOWN
-    );
 
     private final ObjectMapper objectMapper;
     private final JsonUtils jsonUtils;
@@ -41,7 +32,7 @@ public class TaskMapper {
         TaskEntity entity = new TaskEntity();
         entity.setId(task.getId());
         entity.setContextId(task.getContextId());
-        entity.setStatusState(toEntityState(task.getStatus().state()));
+        entity.setStatusState(task.getStatus().state());
         entity.setStatusMessage(jsonUtils.toJsonNode(task.getStatus().message()));
         entity.setStatusTimestamp(toInstant(task.getStatus().timestamp()));
         entity.setMetadata(jsonUtils.toJsonNode(task.getMetadata()));
@@ -69,13 +60,13 @@ public class TaskMapper {
                 .history(entity.getMessages().stream()
                         .map(messageMapper::fromEntity)
                         .toList())
-                .metadata(jsonUtils.fromJsonNode(entity.getMetadata(), Map.class))
+                .metadata(jsonUtils.fromJsonNode(entity.getMetadata(), new TypeReference<Map<String, Object>>(){}))
                 .build();
     }
 
     private TaskStatus buildStatus(TaskEntity entity) {
         return new TaskStatus(
-                toSpecState(entity.getStatusState()),
+                entity.getStatusState(),
                 toMessage(entity.getStatusMessage()),
                 toOffsetDateTime(entity.getStatusTimestamp())
         );
@@ -88,16 +79,8 @@ public class TaskMapper {
         return objectMapper.convertValue(jsonNode, Message.class);
     }
 
-    private TaskState toEntityState(io.a2a.spec.TaskState specState) {
-        return specState == null ? TaskState.UNKNOWN : TaskState.valueOf(specState.name());
-    }
-
-    private io.a2a.spec.TaskState toSpecState(TaskState state) {
-        return state == null ? io.a2a.spec.TaskState.UNKNOWN : io.a2a.spec.TaskState.valueOf(state.name());
-    }
-
-    private boolean isFinalState(io.a2a.spec.TaskState state) {
-        return state != null && FINAL_STATES.contains(state);
+    private boolean isFinalState(TaskState state) {
+        return state != null && state.isFinal();
     }
 
     private Instant toInstant(OffsetDateTime dateTime) {

@@ -1,9 +1,11 @@
 package io.a2a.extras.taskstore.jdbc.entity;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.a2a.spec.TaskState;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
+import lombok.experimental.Accessors;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UpdateTimestamp;
@@ -17,6 +19,7 @@ import java.util.List;
 @Table(name = "tasks")
 @Getter
 @Setter
+@Accessors(chain = true)
 public class TaskEntity {
 
     @Id

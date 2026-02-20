@@ -1,7 +1,7 @@
 package io.a2a.extras.taskstore.jdbc.repository;
 
 import io.a2a.extras.taskstore.jdbc.entity.TaskEntity;
-import io.a2a.extras.taskstore.jdbc.entity.TaskState;
+import io.a2a.spec.TaskState;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;

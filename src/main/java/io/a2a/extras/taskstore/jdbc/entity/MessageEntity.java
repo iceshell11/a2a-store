@@ -1,9 +1,11 @@
 package io.a2a.extras.taskstore.jdbc.entity;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.a2a.spec.Message;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
+import lombok.experimental.Accessors;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
@@ -14,6 +16,7 @@ import java.time.Instant;
 @Table(name = "messages")
 @Getter
 @Setter
+@Accessors(chain = true)
 public class MessageEntity {
 
     @Id
@@ -25,7 +28,7 @@ public class MessageEntity {
 
     @Column(name = "role", nullable = false, length = 20)
     @Enumerated(EnumType.STRING)
-    private Role role;
+    private Message.Role role;
 
     @Column(name = "parts", nullable = false, columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)
